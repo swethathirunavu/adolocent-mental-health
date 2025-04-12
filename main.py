@@ -5,42 +5,30 @@ from sklearn.ensemble import RandomForestClassifier
 import random
 
 # --- Cached Data Loading and Model ---
-@st.cache_resource
-def load_data_and_models():
-    data = pd.read_csv("mental_health_dataset_with_labels.csv")
-    
-    features = data[[
-        'GENDER', 'AGE', 'MARITAL_STATUS', 'EDUCATION_LEVEL',
-        'UNIVERSITY_STATUS', 'ACTIVE_SOCIAL_MEDIA', 'TIME_SPENT_SOCIAL_MEDIA',
-        'CVTOTAL', 'CVPUBLICHUMILIATION', 'CVMALICE', 'CVUNWANTEDCONTACT',
-        'MEANPUBLICHUMILIATION', 'MEANMALICE', 'MEANDECEPTION', 'MEANUNWANTEDCONTACT'
-    ]]
-    
-    features = pd.get_dummies(features, columns=[
-        'GENDER', 'AGE', 'MARITAL_STATUS', 'EDUCATION_LEVEL',
-        'UNIVERSITY_STATUS', 'ACTIVE_SOCIAL_MEDIA', 'TIME_SPENT_SOCIAL_MEDIA'
-    ])
-    
-    y_stress = data['STRESSLEVELS'].map({
-        'Normal': 0, 'Mild': 1, 'Moderate': 2, 'Severe': 3, 'Extremely severe': 4
-    })
-    y_anxiety = data['ANXIETYLEVELS'].map({
-        'Normal': 0, 'Mild': 1, 'Moderate': 2, 'Severe': 3, 'Extremely severe': 4
-    })
-    y_depress = data['Depression'].map({
-        'Normal': 0, 'Mild': 1, 'Moderate': 2, 'Severe': 3, 'Extremely severe': 4
-    })
 
-    stress_model = RandomForestClassifier().fit(features, y_stress)
-    anxiety_model = RandomForestClassifier().fit(features, y_anxiety)
-    depression_model = RandomForestClassifier().fit(features, y_depress)
+ @st.cache_data
+def load_data_and_models():
+    # Load dataset
+    df1 = pd.read_csv("Dataset1.csv")
     
-    return {
-        'stress_model': stress_model,
-        'anxiety_model': anxiety_model,
-        'depression_model': depression_model,
-        'feature_columns': features.columns
-    }
+    # Drop NaN rows (or use df1.fillna(0) if you prefer filling)
+    df1 = df1.dropna()
+    
+    # Separate features and targets
+    features = df1.drop(['Depression', 'Stress', 'Bullying', 'Insecurity'], axis=1)
+    y_depress = df1['Depression']
+    y_stress = df1['Stress']
+    y_bully = df1['Bullying']
+    y_insecure = df1['Insecurity']
+    
+    # Train models
+    depression_model = RandomForestClassifier().fit(features, y_depress)
+    stress_model = RandomForestClassifier().fit(features, y_stress)
+    bully_model = RandomForestClassifier().fit(features, y_bully)
+    insecure_model = RandomForestClassifier().fit(features, y_insecure)
+    
+    return depression_model, stress_model, bully_model, insecure_model, df1
+
 
 # --- Chatbot Class ---
 class MentalHealthChatbot:
