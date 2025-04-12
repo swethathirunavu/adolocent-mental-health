@@ -1,188 +1,131 @@
 import streamlit as st
-import joblib
 import pandas as pd
 import random
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 
-# --- Cached Data Loading and Model ---
+# --- Load ML Model ---
 @st.cache_resource
-def load_data_and_models():
-    data = pd.read_csv("mental_health_dataset_with_labels.csv")
-    X = data[['SUMSTRESS', 'SUMANXIETY', 'SUMDEPRESS', 'CVTOTAL']]
-    y_stress = data['STRESSLEVELS'].map({
-        'Normal': 0, 'Mild': 1, 'Moderate': 2, 'Severe': 3, 'Extremely severe': 4
-    })
-    X_train, X_test, y_train, y_test = train_test_split(X, y_stress, test_size=0.2)
-    model = RandomForestClassifier().fit(X_train, y_train)
-    return {
-        'stress_model': model,
-        'anxiety_model': model,
-        'depression_model': model
-    }
+def load_model_and_features():
+    df = pd.read_csv("mental_health_dataset_with_labels.csv")
 
-# --- Chatbot Class ---
-class MentalHealthChatbot:
-    def __init__(self):
-        self.responses = {
-            "hello": [
-                "Hey there! I'm glad you're here. Want to talk about how you're feeling?",
-                "Hi! You're not alone. I'm here to support you. How's your day going?"
-            ],
-            "insecure": [
-                "You are more capable than you think. Everyone has their own pace and path.",
-                "Remember, your worth isn't defined by others. You have something special in you!"
-            ],
-            "bully": [
-                "I'm sorry to hear that. No one deserves to be bullied. You are strong for enduring this.",
-                "Bullying is never your fault. Talk to someone you trust and don’t keep it in."
-            ],
-            "stress": [
-                "Take a deep breath. You’re doing the best you can, and that’s enough.",
-                "Pause, breathe, and remind yourself how far you’ve come. You’ve got this!"
-            ],
-            "anxiety": [
-                "It’s okay to feel anxious. Focus on one thing you can control right now.",
-                "Try grounding techniques — they really help bring your mind back to the present."
-            ],
-            "depression": [
-                "You are not alone. Even on dark days, your presence matters deeply.",
-                "Small steps still count. Let’s just take today one moment at a time."
-            ],
-            "default": [
-                "I'm here for you. Want to talk about what’s bothering you?",
-                "It’s okay to share. Sometimes saying it out loud makes a difference."
-            ]
+    feature_cols = [
+        "Are_you_worried", "Are_you_relaxed", "Are_you_restless", "Are_you_annoyed", "Are_you_afraid",
+        "How_enthusiastic", "Are_you_hopeless", "Sleep_cycle", "Are_you_tired", "Appetite",
+        "Regret_pregnancy", "Focus_level", "Isolation_level", "Permissiveness", "Health_issues",
+        "Family_income", "Physical_activity"
+    ]
+
+    label = "Depression_Level"
+    df["Family_income"] = df["Family_income"].map({"Stable": 0, "Decreased": 1})
+    df["Physical_activity"] = df["Physical_activity"].map({"Inactive(<1/2 hour)": 0, "Active(>1/2 hour)": 1})
+
+    X, y = df[feature_cols], df[label]
+    model = RandomForestClassifier().fit(*train_test_split(X, y, test_size=0.2)[::2])
+    return model, feature_cols
+
+# --- Smart Suggestions ---
+def get_recommendations(level):
+    tips = []
+    if level == "Severe":
+        tips = [
+            "⚠️ It looks like you're going through a tough time. Please talk to a trusted adult or mental health professional.",
+            "📞 If you're in India, call 9152987821 (iCall) or 9152987821 (Vandrevala Foundation). You're not alone.",
+            "🫂 Reach out to a friend. You deserve support and healing.",
+        ]
+    elif level == "Moderate":
+        tips = [
+            "📝 Try journaling your emotions daily. Writing can help clarify your thoughts.",
+            "💬 Talk to a friend or counselor about what you're feeling.",
+            "🚶‍♀️ Get outside for a short walk and fresh air—it really helps!",
+        ]
+    elif level == "Mild":
+        tips = [
+            "🌼 Practice deep breathing or light meditation.",
+            "🎨 Engage in something creative or playful to lift your mood.",
+        ]
+    elif level == "Normal":
+        tips = [
+            "🌞 Keep up the good self-care! Continue your healthy habits.",
+            "🧘 Stay consistent with things that make you feel grounded.",
+        ]
+    tips.append("💖 You matter. Keep choosing small acts of self-kindness.")
+    return tips
+
+# --- Affirmation Messages ---
+def get_affirmation():
+    affirmations = [
+        "🌟 You are doing your best, and that is enough.",
+        "🌈 Brighter days are ahead. Just breathe.",
+        "🧡 Your mental health matters. You're not alone.",
+        "✨ Healing isn't linear. Be patient with yourself."
+    ]
+    return random.choice(affirmations)
+
+# --- Friendly Chatbot ---
+def seraphina_chat(user_input):
+    responses = {
+        "hello": "Hey there! I'm Seraphina. How are you feeling today?",
+        "sad": "I'm sorry you're feeling this way. Want to talk about it?",
+        "help": "I'm here for you. You can also reach out to someone you trust ❤️",
+        "thank you": "Anytime. You're not alone 🌻",
+    }
+    for key in responses:
+        if key in user_input.lower():
+            return responses[key]
+    return "I'm here to listen and support you. Tell me more 💬"
+
+# --- Streamlit App ---
+def main():
+    st.set_page_config(page_title="Seraphina: Your Mental Health Ally", layout="wide")
+    st.title("🌿 Seraphina: Your Insight Partner")
+    st.write("Fill out the form below. I'll help assess your emotional state and support you with gentle guidance 💛")
+
+    model, feature_cols = load_model_and_features()
+
+    with st.form("wellness_form"):
+        st.header("📋 Self-Check Assessment")
+
+        cols = st.columns(3)
+        input_data = {}
+        inputs = {
+            "Are_you_worried": [1, 2, 3], "Are_you_relaxed": [1, 2, 3],
+            "Are_you_restless": [1, 2, 3], "Are_you_annoyed": [1, 2, 3],
+            "Are_you_afraid": [1, 2, 3], "How_enthusiastic": [1, 2, 3],
+            "Are_you_hopeless": [1, 2, 3], "Sleep_cycle": [1, 2, 3],
+            "Are_you_tired": [1, 2, 3], "Appetite": [1, 2, 3],
+            "Regret_pregnancy": [1, 2, 3], "Focus_level": [1, 2, 3],
+            "Isolation_level": [1, 2, 3], "Permissiveness": [1, 2, 3],
         }
 
-    def respond(self, message):
-        message = message.lower()
-        for key in self.responses:
-            if key in message:
-                return random.choice(self.responses[key])
-        return random.choice(self.responses["default"])
+        for i, (key, options) in enumerate(inputs.items()):
+            input_data[key] = cols[i % 3].select_slider(key.replace("_", " "), options=options)
 
-# --- Recommendations ---
-def get_recommendations(stress, anxiety, depression):
-    suggestions = []
+        input_data["Health_issues"] = cols[0].select_slider("Do you have health issues?", options=[0, 1])
+        input_data["Family_income"] = 1 if cols[1].selectbox("Family Income", ["Stable", "Decreased"]) == "Decreased" else 0
+        input_data["Physical_activity"] = 1 if cols[2].selectbox("Physical Activity", ["Inactive(<1/2 hour)", "Active(>1/2 hour)"]) == "Active(>1/2 hour)" else 0
 
-    if stress >= 4:
-        suggestions.append("🌿 You might be feeling overwhelmed. It's okay. Try journaling or speaking to a counselor.")
-    elif stress >= 2:
-        suggestions.append("🧘 Consider short breathing exercises or guided meditation daily.")
+        submitted = st.form_submit_button("💡 Analyze Me")
+        if submitted:
+            input_df = pd.DataFrame([input_data])
+            result = model.predict(input_df)[0]
 
-    if anxiety >= 4:
-        suggestions.append("💬 Talking to someone can help. Even 10 minutes with a friend can make a difference.")
-    elif anxiety >= 2:
-        suggestions.append("🎧 Try listening to soothing music or practicing mindfulness before bed.")
+            st.success(f"🧠 Detected Level: **{result}**")
+            st.subheader("🌻 Seraphina's Suggestions")
+            for rec in get_recommendations(result):
+                st.write("- " + rec)
 
-    if depression >= 4:
-        suggestions.append("🤍 You're strong for pushing through. Take a small step like taking a walk or reading something positive.")
-    elif depression >= 2:
-        suggestions.append("📖 Try writing down three small things you're grateful for today.")
+            st.info(get_affirmation())
 
-    suggestions.append("💪 You’re doing better than you think. Progress takes time, and you're on your way.")
-    return suggestions
+    st.divider()
 
-# --- Main Streamlit App ---
-def main():
-    st.set_page_config(page_title="Mental Health Support", layout="wide")
-    resources = load_data_and_models()
-    chatbot = MentalHealthChatbot()
+    st.subheader("💬 Talk to Seraphina")
+    chat = st.chat_input("Say something...")
+    if chat:
+        reply = seraphina_chat(chat)
+        st.write(f"**You:** {chat}")
+        st.write(f"**Seraphina:** {reply}")
 
-    st.sidebar.title("Menu")
-    page = st.sidebar.radio("Go to", ["Home", "Assessment", "Chatbot", "Emergency Resources"])
-
-    if page == "Home":
-        st.title("🧠 Welcome to Mental Health Support System")
-        st.subheader("We care about how you feel.")
-
-        with st.form("user_info"):
-            name = st.text_input("Your Name")
-            age = st.slider("Your Age", 10, 100, 18)
-            gender = st.selectbox("Gender", ["Prefer not to say", "Female", "Male", "Other"])
-            env = st.selectbox("Where are you coming from?", ["School", "College", "Workplace", "Other"])
-            submitted = st.form_submit_button("Save & Continue")
-            if submitted:
-                st.success(f"Hello {name}, we’re here to support you on this journey. Let’s move forward together 💖")
-
-    elif page == "Assessment":
-        st.title("📊 Mental Health Assessment")
-        with st.form("assessment_form"):
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                stress = st.slider("Stress Level (1-10)", 1, 10, 5)
-            with col2:
-                anxiety = st.slider("Anxiety Level (1-10)", 1, 10, 5)
-            with col3:
-                depression = st.slider("Depression Level (1-10)", 1, 10, 5)
-
-            submitted = st.form_submit_button("Analyze")
-            if submitted:
-                input_df = pd.DataFrame({
-                    'SUMSTRESS': [stress],
-                    'SUMANXIETY': [anxiety],
-                    'SUMDEPRESS': [depression],
-                    'CVTOTAL': [5]
-                })
-
-                stress_lvl = resources['stress_model'].predict(input_df)[0]
-                severity = ["Normal", "Mild", "Moderate", "Severe", "Extremely severe"]
-
-                st.subheader("💡 Your Mental State Overview")
-                cols = st.columns(3)
-                for idx, label in enumerate(["Stress", "Anxiety", "Depression"]):
-                    cols[idx].metric(label, severity[stress_lvl])
-
-                st.subheader("📈 Visualizing Your Inputs")
-                graph_df = pd.DataFrame({
-                    "Category": ["Stress", "Anxiety", "Depression"],
-                    "Score": [stress, anxiety, depression]
-                })
-                st.bar_chart(graph_df.set_index("Category"))
-
-                st.subheader("🌼 Gentle Suggestions for You")
-                for rec in get_recommendations(stress_lvl, stress_lvl, stress_lvl):
-                    st.write(f"- {rec}")
-
-    elif page == "Chatbot":
-        st.title("💬 Talk to Your Support Chatbot")
-
-        if "messages" not in st.session_state:
-            st.session_state.messages = []
-            st.session_state.messages.append({
-                "role": "assistant",
-                "content": "Hi! I'm here to support you. Are you feeling insecure, anxious, or something else?"
-            })
-
-        for msg in st.session_state.messages:
-            with st.chat_message(msg["role"]):
-                st.write(msg["content"])
-
-        if prompt := st.chat_input("How are you feeling today?"):
-            st.session_state.messages.append({"role": "user", "content": prompt})
-            with st.chat_message("user"):
-                st.write(prompt)
-
-            response = chatbot.respond(prompt)
-            st.session_state.messages.append({"role": "assistant", "content": response})
-            with st.chat_message("assistant"):
-                st.write(response)
-
-    elif page == "Emergency Resources":
-        st.title("🛟 Emergency Resources - You're Not Alone")
-        st.write("""
-        ### 🌍 International Help Lines
-        - **🇮🇳 India**: iCall – +91 9152987821
-        - **🇺🇸 USA**: Suicide & Crisis Lifeline – Dial 988
-        - **🇬🇧 UK**: Samaritans – 116 123
-        - **🇨🇦 Canada**: Talk Suicide – 1-833-456-4566
-        - **🇦🇺 Australia**: Lifeline – 13 11 14
-        - **🇸🇬 Singapore**: Samaritans of Singapore (SOS) – 1800 221 4444
-        - **🌐 Global**: [IASP Crisis Centres](https://www.iasp.info/resources/Crisis_Centres/)
-
-        Please reach out — You deserve care, support, and love 💙
-        """)
-
+# Run the app
 if __name__ == "__main__":
     main()
