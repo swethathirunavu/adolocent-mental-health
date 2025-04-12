@@ -138,8 +138,9 @@ def main():
         st.title("💬 Talk to Your Support Chatbot")
 
         if "messages" not in st.session_state:
-            st.session_state.messages = []
-            st.session_state.messages.append({
-                "role": "assistant
-::contentReference[oaicite:8]{index=8}
+    st.session_state.messages = []
+    st.session_state.messages.append({
+        "role": "assistant",
+        "content": "Hi there! I'm your support buddy 🤗. How are you feeling today?"
+    })
  
