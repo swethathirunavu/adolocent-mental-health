@@ -134,6 +134,13 @@ def main():
                 for idx, label in enumerate(["Stress", "Anxiety", "Depression"]):
                     cols[idx].metric(label, severity[stress_lvl])
 
+                st.subheader("📈 Visualizing Your Inputs")
+                graph_df = pd.DataFrame({
+                    "Category": ["Stress", "Anxiety", "Depression"],
+                    "Score": [stress, anxiety, depression]
+                })
+                st.bar_chart(graph_df.set_index("Category"))
+
                 st.subheader("🌼 Gentle Suggestions for You")
                 for rec in get_recommendations(stress_lvl, stress_lvl, stress_lvl):
                     st.write(f"- {rec}")
@@ -173,7 +180,7 @@ def main():
         - **🇦🇺 Australia**: Lifeline – 13 11 14
         - **🇸🇬 Singapore**: Samaritans of Singapore (SOS) – 1800 221 4444
         - **🌐 Global**: [IASP Crisis Centres](https://www.iasp.info/resources/Crisis_Centres/)
-        
+
         Please reach out — You deserve care, support, and love 💙
         """)
 
