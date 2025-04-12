@@ -32,13 +32,13 @@ def load_data_and_models():
     })
     
     # Train models
-    X_train, X_test, y_train, y_test = train_test_split(features, y_stress, test_size=0.2)
+    X_train, _, y_train, _ = train_test_split(features, y_stress, test_size=0.2)
     stress_model = RandomForestClassifier().fit(X_train, y_train)
     
-    X_train, X_test, y_train, y_test = train_test_split(features, y_anxiety, test_size=0.2)
+    X_train, _, y_train, _ = train_test_split(features, y_anxiety, test_size=0.2)
     anxiety_model = RandomForestClassifier().fit(X_train, y_train)
     
-    X_train, X_test, y_train, y_test = train_test_split(features, y_depress, test_size=0.2)
+    X_train, _, y_train, _ = train_test_split(features, y_depress, test_size=0.2)
     depression_model = RandomForestClassifier().fit(X_train, y_train)
     
     return {
@@ -94,9 +94,9 @@ def get_recommendations(stress, anxiety, depression):
     suggestions = []
     severity = ["Normal", "Mild", "Moderate", "Severe", "Extremely severe"]
 
-    if stress >= 3:  # Moderate or higher
+    if stress >= 3:
         suggestions.append("🌿 You might be feeling overwhelmed. It's okay. Try journaling or speaking to a counselor.")
-    elif stress >= 1:  # Mild
+    elif stress >= 1:
         suggestions.append("🧘 Consider short breathing exercises or guided meditation daily.")
 
     if anxiety >= 3:
@@ -167,7 +167,6 @@ def main():
             submitted = st.form_submit_button("Analyze My Mental Health")
             
             if submitted:
-                # Prepare input data
                 input_data = {
                     'GENDER': gender,
                     'AGE': age,
@@ -182,21 +181,14 @@ def main():
                     'CVUNWANTEDCONTACT': cv_contact
                 }
                 
-                # Convert to DataFrame
                 input_df = pd.DataFrame([input_data])
-                
-                # One-hot encode categorical variables
                 input_df = pd.get_dummies(input_df)
-                
-                # Ensure all feature columns are present (add missing with 0)
+
                 for col in resources['feature_columns']:
                     if col not in input_df.columns:
                         input_df[col] = 0
-                
-                # Reorder columns to match training data
                 input_df = input_df[resources['feature_columns']]
                 
-                # Make predictions
                 stress_pred = resources['stress_model'].predict(input_df)[0]
                 anxiety_pred = resources['anxiety_model'].predict(input_df)[0]
                 depression_pred = resources['depression_model'].predict(input_df)[0]
@@ -204,7 +196,6 @@ def main():
                 severity = ["Normal", "Mild", "Moderate", "Severe", "Extremely severe"]
                 
                 st.subheader("🔍 Your Mental Health Assessment Results")
-                
                 cols = st.columns(3)
                 cols[0].metric("Stress Level", severity[stress_pred])
                 cols[1].metric("Anxiety Level", severity[anxiety_pred])
@@ -223,44 +214,33 @@ def main():
 
     elif page == "Chatbot":
         st.title("💬 Talk to Your Support Chatbot")
-
         if "messages" not in st.session_state:
             st.session_state.messages = []
-            st.session_state.messages.append({
-                "role": "assistant",
-                "content": "Hi! I'm here to support you. Are you feeling insecure, anxious, or something else?"
-            })
-
+        
         for msg in st.session_state.messages:
             with st.chat_message(msg["role"]):
-                st.write(msg["content"])
-
-        if prompt := st.chat_input("How are you feeling today?"):
-            st.session_state.messages.append({"role": "user", "content": prompt})
+                st.markdown(msg["content"])
+        
+        user_input = st.chat_input("How are you feeling?")
+        if user_input:
+            st.session_state.messages.append({"role": "user", "content": user_input})
             with st.chat_message("user"):
-                st.write(prompt)
+                st.markdown(user_input)
 
-            response = chatbot.respond(prompt)
-            st.session_state.messages.append({"role": "assistant", "content": response})
+            bot_response = chatbot.respond(user_input)
+            st.session_state.messages.append({"role": "assistant", "content": bot_response})
             with st.chat_message("assistant"):
-                st.write(response)
+                st.markdown(bot_response)
 
     elif page == "Emergency Resources":
-        st.title("🛟 Emergency Resources - You're Not Alone")
-        st.write("""
-        ### 🌍 International Help Lines
-        - **🇮🇳 India**: iCall – +91 9152987821
-        - **🇺🇸 USA**: Suicide & Crisis Lifeline – Dial 988
-        - **🇬🇧 UK**: Samaritans – 116 123
-        - **🇨🇦 Canada**: Talk Suicide – 1-833-456-4566
-        - **🇦🇺 Australia**: Lifeline – 13 11 14
-        - **🇸🇬 Singapore**: Samaritans of Singapore (SOS) – 1800 221 4444
-        - **🌐 Global**: [IASP Crisis Centres](https://www.iasp.info/resources/Crisis_Centres/)
-
-        Please reach out — You deserve care, support, and love 💙
+        st.title("🚨 Emergency Mental Health Resources")
+        st.write("If you're in crisis or need immediate support, please reach out to these trusted resources:")
+        st.markdown("""
+        - 📞 **Suicide Prevention Hotline**: 1-800-273-TALK (8255)  
+        - 📱 **Crisis Text Line**: Text HOME to 741741  
+        - 🧑‍⚕️ **Local Mental Health Clinics**: Visit your nearest public health center  
+        - 🌐 **Online Therapy**: [BetterHelp](https://www.betterhelp.com), [Talkspace](https://www.talkspace.com)
         """)
 
 if __name__ == "__main__":
     main()
-
- 
