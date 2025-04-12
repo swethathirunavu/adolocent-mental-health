@@ -25,7 +25,7 @@ def load_data_and_models():
 # --- Cohere Chatbot Class ---
 class CohereChatbot:
     def __init__(self):
-        self.client = cohere.Client(st.secrets["cohere_api_key"])  # Get API key from Streamlit secrets
+        self.client = cohere.Client(st.secrets["COHERE_API_KEY"])  # Get API key from Streamlit secrets
 
     def respond(self, prompt):
         response = self.client.generate(
