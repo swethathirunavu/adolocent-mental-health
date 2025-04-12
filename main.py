@@ -1,131 +1,114 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
+import joblib
 import random
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
 
-# --- Load ML Model ---
+st.set_page_config(page_title="Adolescence Wellness", layout="wide")
+st.markdown("<h1 style='text-align: center;'>Adolescence Wellness 💫</h1>", unsafe_allow_html=True)
+
+# Load model and feature columns
 @st.cache_resource
 def load_model_and_features():
+    model = joblib.load("model.pkl")
     df = pd.read_csv("mental_health_dataset_with_labels.csv")
 
-    feature_cols = [
-        "Are_you_worried", "Are_you_relaxed", "Are_you_restless", "Are_you_annoyed", "Are_you_afraid",
-        "How_enthusiastic", "Are_you_hopeless", "Sleep_cycle", "Are_you_tired", "Appetite",
-        "Regret_pregnancy", "Focus_level", "Isolation_level", "Permissiveness", "Health_issues",
-        "Family_income", "Physical_activity"
-    ]
+    if "Family_income" in df.columns:
+        df["Family_income"] = df["Family_income"].map({"Stable": 0, "Decreased": 1})
+    elif "Family income" in df.columns:
+        df["Family_income"] = df["Family income"].map({"Stable": 0, "Decreased": 1})
 
-    label = "Depression_Level"
-    df["Family_income"] = df["Family_income"].map({"Stable": 0, "Decreased": 1})
-    df["Physical_activity"] = df["Physical_activity"].map({"Inactive(<1/2 hour)": 0, "Active(>1/2 hour)": 1})
+    if "Physical_activity" in df.columns:
+        df["Physical_activity"] = df["Physical_activity"].map({"High": 0, "Low": 1})
+    elif "Physical activity" in df.columns:
+        df["Physical_activity"] = df["Physical activity"].map({"High": 0, "Low": 1})
 
-    X, y = df[feature_cols], df[label]
-    model = RandomForestClassifier().fit(*train_test_split(X, y, test_size=0.2)[::2])
+    feature_cols = ['Age', 'Gender', 'Sleep_hours', 'Social_media_usage',
+                    'Family_income', 'Physical_activity', 'School_support']
     return model, feature_cols
 
-# --- Smart Suggestions ---
-def get_recommendations(level):
-    tips = []
-    if level == "Severe":
-        tips = [
-            "⚠️ It looks like you're going through a tough time. Please talk to a trusted adult or mental health professional.",
-            "📞 If you're in India, call 9152987821 (iCall) or 9152987821 (Vandrevala Foundation). You're not alone.",
-            "🫂 Reach out to a friend. You deserve support and healing.",
-        ]
-    elif level == "Moderate":
-        tips = [
-            "📝 Try journaling your emotions daily. Writing can help clarify your thoughts.",
-            "💬 Talk to a friend or counselor about what you're feeling.",
-            "🚶‍♀️ Get outside for a short walk and fresh air—it really helps!",
-        ]
-    elif level == "Mild":
-        tips = [
-            "🌼 Practice deep breathing or light meditation.",
-            "🎨 Engage in something creative or playful to lift your mood.",
-        ]
-    elif level == "Normal":
-        tips = [
-            "🌞 Keep up the good self-care! Continue your healthy habits.",
-            "🧘 Stay consistent with things that make you feel grounded.",
-        ]
-    tips.append("💖 You matter. Keep choosing small acts of self-kindness.")
-    return tips
+# Recommendations
+def get_suggestions(prediction):
+    if prediction == 0:
+        return "🟢 You're doing well! Keep maintaining your healthy routine. 😊"
+    elif prediction == 1:
+        return "🟡 You may be under moderate stress. Try relaxation techniques, talk to a friend, and get enough rest. 🌿"
+    else:
+        return "🔴 High mental distress detected. It's okay to ask for help. Talk to a trusted adult or counselor. ❤️"
 
-# --- Affirmation Messages ---
-def get_affirmation():
-    affirmations = [
-        "🌟 You are doing your best, and that is enough.",
-        "🌈 Brighter days are ahead. Just breathe.",
-        "🧡 Your mental health matters. You're not alone.",
-        "✨ Healing isn't linear. Be patient with yourself."
-    ]
-    return random.choice(affirmations)
+# Emergency support
+def emergency_help():
+    st.markdown(\"\"\"
+    ### 🚨 Emergency Tips
+    - Contact a trusted teacher, parent, or counselor 📞
+    - Call your local child helpline 📱
+    - Take 3 deep breaths and drink water 🧘
+    - Write down your thoughts in a journal 📓
+    - You matter. Never hesitate to seek help 💗
+    \"\"\")
 
-# --- Friendly Chatbot ---
-def seraphina_chat(user_input):
-    responses = {
-        "hello": "Hey there! I'm Seraphina. How are you feeling today?",
-        "sad": "I'm sorry you're feeling this way. Want to talk about it?",
-        "help": "I'm here for you. You can also reach out to someone you trust ❤️",
-        "thank you": "Anytime. You're not alone 🌻",
-    }
-    for key in responses:
-        if key in user_input.lower():
-            return responses[key]
-    return "I'm here to listen and support you. Tell me more 💬"
+# Chatbot responses
+def chatbot_response(user_input):
+    user_input = user_input.lower()
+    if "sad" in user_input or "depressed" in user_input:
+        return "I'm really sorry you're feeling this way. You're not alone. 💛"
+    elif "happy" in user_input:
+        return "That's wonderful! Keep spreading joy. 🌞"
+    elif "help" in user_input:
+        return "I'm here to help. Tell me more so I can support you."
+    else:
+        return random.choice([
+            "I'm here for you 💬",
+            "You're stronger than you think.",
+            "Would you like to talk about your day?",
+            "Everything will be okay 💫"
+        ])
 
-# --- Streamlit App ---
+# Main function
 def main():
-    st.set_page_config(page_title="Seraphina: Your Mental Health Ally", layout="wide")
-    st.title("🌿 Seraphina: Your Insight Partner")
-    st.write("Fill out the form below. I'll help assess your emotional state and support you with gentle guidance 💛")
-
     model, feature_cols = load_model_and_features()
 
-    with st.form("wellness_form"):
-        st.header("📋 Self-Check Assessment")
+    menu = ["Prediction Tool", "Chatbot Friend", "Emergency"]
+    choice = st.sidebar.radio("Choose a feature", menu)
 
-        cols = st.columns(3)
-        input_data = {}
-        inputs = {
-            "Are_you_worried": [1, 2, 3], "Are_you_relaxed": [1, 2, 3],
-            "Are_you_restless": [1, 2, 3], "Are_you_annoyed": [1, 2, 3],
-            "Are_you_afraid": [1, 2, 3], "How_enthusiastic": [1, 2, 3],
-            "Are_you_hopeless": [1, 2, 3], "Sleep_cycle": [1, 2, 3],
-            "Are_you_tired": [1, 2, 3], "Appetite": [1, 2, 3],
-            "Regret_pregnancy": [1, 2, 3], "Focus_level": [1, 2, 3],
-            "Isolation_level": [1, 2, 3], "Permissiveness": [1, 2, 3],
-        }
+    if choice == "Prediction Tool":
+        st.subheader("🧠 Mental Health Risk Prediction")
 
-        for i, (key, options) in enumerate(inputs.items()):
-            input_data[key] = cols[i % 3].select_slider(key.replace("_", " "), options=options)
+        age = st.slider("Age", 10, 19)
+        gender = st.selectbox("Gender", ["Male", "Female"])
+        sleep = st.slider("Average Sleep Hours", 0.0, 12.0, step=0.5)
+        social = st.slider("Social Media Usage (hours/day)", 0.0, 10.0, step=0.5)
+        family = st.selectbox("Family Income Status", ["Stable", "Decreased"])
+        activity = st.selectbox("Physical Activity Level", ["High", "Low"])
+        support = st.slider("School Support Rating", 1, 10)
 
-        input_data["Health_issues"] = cols[0].select_slider("Do you have health issues?", options=[0, 1])
-        input_data["Family_income"] = 1 if cols[1].selectbox("Family Income", ["Stable", "Decreased"]) == "Decreased" else 0
-        input_data["Physical_activity"] = 1 if cols[2].selectbox("Physical Activity", ["Inactive(<1/2 hour)", "Active(>1/2 hour)"]) == "Active(>1/2 hour)" else 0
+        input_df = pd.DataFrame({
+            'Age': [age],
+            'Gender': [0 if gender == "Male" else 1],
+            'Sleep_hours': [sleep],
+            'Social_media_usage': [social],
+            'Family_income': [0 if family == "Stable" else 1],
+            'Physical_activity': [0 if activity == "High" else 1],
+            'School_support': [support]
+        })
 
-        submitted = st.form_submit_button("💡 Analyze Me")
-        if submitted:
-            input_df = pd.DataFrame([input_data])
-            result = model.predict(input_df)[0]
+        if st.button("Predict"):
+            prediction = model.predict(input_df)[0]
+            label = ["Low Risk", "Moderate Risk", "High Risk"][prediction]
+            st.success(f"Prediction: {label}")
+            st.info(get_suggestions(prediction))
 
-            st.success(f"🧠 Detected Level: **{result}**")
-            st.subheader("🌻 Seraphina's Suggestions")
-            for rec in get_recommendations(result):
-                st.write("- " + rec)
+    elif choice == "Chatbot Friend":
+        st.subheader("💬 Talk to Your Virtual Friend")
+        user_input = st.text_input("How are you feeling?")
+        if st.button("Send"):
+            if user_input.strip():
+                response = chatbot_response(user_input)
+                st.markdown(f"**Bot:** {response}")
 
-            st.info(get_affirmation())
+    elif choice == "Emergency":
+        st.subheader("🚨 Emergency Help")
+        emergency_help()
 
-    st.divider()
-
-    st.subheader("💬 Talk to Seraphina")
-    chat = st.chat_input("Say something...")
-    if chat:
-        reply = seraphina_chat(chat)
-        st.write(f"**You:** {chat}")
-        st.write(f"**Seraphina:** {reply}")
-
-# Run the app
 if __name__ == "__main__":
     main()
