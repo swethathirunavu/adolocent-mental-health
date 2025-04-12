@@ -29,15 +29,15 @@ class MentalHealthChatbot:
                 "Hey there! I'm glad you're here. Want to talk about how you're feeling?",
                 "Hi! You're not alone. I'm here to support you. How's your day going?"
             ],
-            "insecure": [
+            "i am soo insecure": [
                 "You are more capable than you think. Everyone has their own pace and path.",
                 "Remember, your worth isn't defined by others. You have something special in you!"
             ],
-            "bully": [
+            "everyone are bullying me": [
                 "I'm sorry to hear that. No one deserves to be bullied. You are strong for enduring this.",
                 "Bullying is never your fault. Talk to someone you trust and don’t keep it in."
             ],
-            "stress": [
+            "stressed": [
                 "Take a deep breath. You’re doing the best you can, and that’s enough.",
                 "Pause, breathe, and remind yourself how far you’ve come. You’ve got this!"
             ],
@@ -45,7 +45,7 @@ class MentalHealthChatbot:
                 "It’s okay to feel anxious. Focus on one thing you can control right now.",
                 "Try grounding techniques — they really help bring your mind back to the present."
             ],
-            "depression": [
+            "i feel depressed": [
                 "You are not alone. Even on dark days, your presence matters deeply.",
                 "Small steps still count. Let’s just take today one moment at a time."
             ],
