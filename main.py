@@ -1,24 +1,28 @@
 import streamlit as st
-import joblib
 import pandas as pd
-import random
+import joblib
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
+import random
 
 # --- Cached Data Loading and Model ---
 @st.cache_resource
 def load_data_and_models():
     data = pd.read_csv("mental_health_dataset_with_labels.csv")
     
-    # Prepare features and targets
-    features = data[['GENDER', 'AGE', 'MARITAL_STATUS', 'EDUCATION_LEVEL', 
-                    'UNIVERSITY_STATUS', 'ACTIVE_SOCIAL_MEDIA', 'TIME_SPENT_SOCIAL_MEDIA',
-                    'CVTOTAL', 'CVPUBLICHUMILIATION', 'CVMALICE', 'CVUNWANTEDCONTACT']]
+    # Prepare features - using relevant columns from your dataset
+    features = data[[
+        'GENDER', 'AGE', 'MARITAL_STATUS', 'EDUCATION_LEVEL',
+        'UNIVERSITY_STATUS', 'ACTIVE_SOCIAL_MEDIA', 'TIME_SPENT_SOCIAL_MEDIA',
+        'CVTOTAL', 'CVPUBLICHUMILIATION', 'CVMALICE', 'CVUNWANTEDCONTACT',
+        'MEANPUBLICHUMILIATION', 'MEANMALICE', 'MEANDECEPTION', 'MEANUNWANTEDCONTACT'
+    ]]
     
     # Convert categorical features
-    features = pd.get_dummies(features, columns=['GENDER', 'AGE', 'MARITAL_STATUS', 
-                                               'EDUCATION_LEVEL', 'UNIVERSITY_STATUS',
-                                               'ACTIVE_SOCIAL_MEDIA', 'TIME_SPENT_SOCIAL_MEDIA'])
+    features = pd.get_dummies(features, columns=[
+        'GENDER', 'AGE', 'MARITAL_STATUS', 'EDUCATION_LEVEL',
+        'UNIVERSITY_STATUS', 'ACTIVE_SOCIAL_MEDIA', 'TIME_SPENT_SOCIAL_MEDIA'
+    ])
     
     # Prepare targets
     y_stress = data['STRESSLEVELS'].map({
@@ -32,14 +36,9 @@ def load_data_and_models():
     })
     
     # Train models
-    X_train, _, y_train, _ = train_test_split(features, y_stress, test_size=0.2)
-    stress_model = RandomForestClassifier().fit(X_train, y_train)
-    
-    X_train, _, y_train, _ = train_test_split(features, y_anxiety, test_size=0.2)
-    anxiety_model = RandomForestClassifier().fit(X_train, y_train)
-    
-    X_train, _, y_train, _ = train_test_split(features, y_depress, test_size=0.2)
-    depression_model = RandomForestClassifier().fit(X_train, y_train)
+    stress_model = RandomForestClassifier().fit(features, y_stress)
+    anxiety_model = RandomForestClassifier().fit(features, y_anxiety)
+    depression_model = RandomForestClassifier().fit(features, y_depress)
     
     return {
         'stress_model': stress_model,
@@ -94,23 +93,23 @@ def get_recommendations(stress, anxiety, depression):
     suggestions = []
     severity = ["Normal", "Mild", "Moderate", "Severe", "Extremely severe"]
 
-    if stress >= 3:
-        suggestions.append("🌿 You might be feeling overwhelmed. It's okay. Try journaling or speaking to a counselor.")
-    elif stress >= 1:
-        suggestions.append("🧘 Consider short breathing exercises or guided meditation daily.")
+    if stress >= 3:  # Moderate or higher
+        suggestions.append("🌿 You might be feeling overwhelmed. Try journaling or speaking to a counselor.")
+    elif stress >= 1:  # Mild
+        suggestions.append("🧘 Short breathing exercises or guided meditation can help reduce stress.")
 
     if anxiety >= 3:
-        suggestions.append("💬 Talking to someone can help. Even 10 minutes with a friend can make a difference.")
+        suggestions.append("💬 Talking to someone you trust can help manage anxious feelings.")
     elif anxiety >= 1:
-        suggestions.append("🎧 Try listening to soothing music or practicing mindfulness before bed.")
+        suggestions.append("🎧 Soothing music or mindfulness practices before bed can calm anxiety.")
 
     if depression >= 3:
-        suggestions.append("🤍 You're strong for pushing through. Take a small step like taking a walk or reading something positive.")
+        suggestions.append("🤍 Take small steps like a short walk or reading something uplifting.")
     elif depression >= 1:
-        suggestions.append("📖 Try writing down three small things you're grateful for today.")
+        suggestions.append("📖 Writing down three things you're grateful for each day can help.")
 
-    suggestions.append(f"💪 Your current levels - Stress: {severity[stress]}, Anxiety: {severity[anxiety]}, Depression: {severity[depression]}")
-    suggestions.append("💪 You're doing better than you think. Progress takes time, and you're on your way.")
+    suggestions.append(f"💡 Your assessment: Stress - {severity[stress]}, Anxiety - {severity[anxiety]}, Depression - {severity[depression]}")
+    suggestions.append("💪 Remember, progress takes time. You're stronger than you think.")
     return suggestions
 
 # --- Main Streamlit App ---
@@ -120,53 +119,61 @@ def main():
     chatbot = MentalHealthChatbot()
 
     st.sidebar.title("Menu")
-    page = st.sidebar.radio("Go to", ["Home", "Assessment", "Chatbot", "Emergency Resources"])
+    page = st.sidebar.radio("Go to", ["Home", "Mental Health Assessment", "Chatbot", "Emergency Resources"])
 
     if page == "Home":
-        st.title("🧠 Welcome to Mental Health Support System")
-        st.subheader("We care about how you feel.")
-
-        with st.form("user_info"):
-            name = st.text_input("Your Name")
-            age = st.selectbox("Age", ["<18 years old", "19-24 years old", ">25 years old"])
-            gender = st.selectbox("Gender", ["Female", "Male"])
-            marital_status = st.selectbox("Marital Status", ["Single", "Married"])
-            education = st.selectbox("Education Level", ["Diploma/Foundation", "Bachelor Degree", "Postgraduate studies"])
-            university = st.selectbox("University Type", ["Private Universities", "Public Universities"])
-            social_media = st.selectbox("Social Media Activity", ["Less active", "Active", "Very active"])
-            social_media_time = st.selectbox("Time Spent on Social Media", ["1-2 hours", "3-6 hours", "7-10 hours", "> 11 hours", "Whole day"])
-            
-            submitted = st.form_submit_button("Save & Continue")
-            if submitted:
-                st.success(f"Hello {name}, we're here to support you on this journey. Let's move forward together 💖")
-
-    elif page == "Assessment":
-        st.title("📊 Mental Health Assessment")
-        st.write("Please provide some information about your experiences to help us understand your mental health status.")
+        st.title("🧠 MindCare: Your Mental Health Companion")
+        st.subheader("We help assess your mental wellbeing based on your experiences")
         
+        st.write("""
+        This tool helps evaluate your mental health status based on various life factors and experiences.
+        By answering questions about your demographics, social media use, and experiences, we can provide
+        insights into your stress, anxiety, and depression levels.
+        """)
+        
+        with st.expander("How it works"):
+            st.write("""
+            1. Go to the **Mental Health Assessment** page
+            2. Answer questions about your experiences
+            3. Our system will analyze your responses
+            4. Receive personalized insights and recommendations
+            """)
+
+    elif page == "Mental Health Assessment":
+        st.title("📝 Mental Health Assessment")
+        st.write("Please answer these questions to help us understand your experiences and mental wellbeing.")
+
         with st.form("assessment_form"):
+            st.subheader("Personal Information")
             col1, col2 = st.columns(2)
             
             with col1:
-                st.subheader("Personal Information")
-                age = st.selectbox("Age", ["<18 years old", "19-24 years old", ">25 years old"])
                 gender = st.selectbox("Gender", ["Female", "Male"])
+                age = st.selectbox("Age", ["<18 years old", "19-24 years old", ">25 years old"])
                 marital_status = st.selectbox("Marital Status", ["Single", "Married"])
-                education = st.selectbox("Education Level", ["Diploma/Foundation", "Bachelor Degree", "Postgraduate studies"])
-                university = st.selectbox("University Type", ["Private Universities", "Public Universities"])
                 
             with col2:
-                st.subheader("Social Media & Cyber Experiences")
-                social_media = st.selectbox("Social Media Activity", ["Less active", "Active", "Very active"])
-                social_media_time = st.selectbox("Time Spent on Social Media", ["1-2 hours", "3-6 hours", "7-10 hours", "> 11 hours", "Whole day"])
-                cv_total = st.slider("Cyber Victimization Experiences (0-100)", 0, 100, 15)
-                cv_public = st.slider("Public Humiliation Experiences (0-50)", 0, 50, 2)
-                cv_malice = st.slider("Malicious Behavior Experiences (0-50)", 0, 50, 5)
-                cv_contact = st.slider("Unwanted Contact Experiences (0-50)", 0, 50, 8)
+                education = st.selectbox("Education Level", ["Diploma/Foundation", "Bachelor Degree", "Postgraduate studies"])
+                university = st.selectbox("University Type", ["Private Universities", "Public Universities"])
             
-            submitted = st.form_submit_button("Analyze My Mental Health")
+            st.subheader("Social Media & Online Experiences")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                social_media = st.selectbox("How active are you on social media?", 
+                                          ["Less active", "Active", "Very active"])
+                social_media_time = st.selectbox("Daily time spent on social media", 
+                                               ["1-2 hours", "3-6 hours", "7-10 hours", "> 11 hours", "Whole day"])
+                
+            with col2:
+                cyber_exp = st.slider("How often have you experienced cyber issues? (1-10)", 1, 10, 3)
+                public_humiliation = st.slider("Experienced public humiliation online? (1-10)", 1, 10, 1)
+                unwanted_contact = st.slider("Received unwanted online contact? (1-10)", 1, 10, 1)
+            
+            submitted = st.form_submit_button("Evaluate My Mental Health")
             
             if submitted:
+                # Prepare input data
                 input_data = {
                     'GENDER': gender,
                     'AGE': age,
@@ -175,20 +182,29 @@ def main():
                     'UNIVERSITY_STATUS': university,
                     'ACTIVE_SOCIAL_MEDIA': social_media,
                     'TIME_SPENT_SOCIAL_MEDIA': social_media_time,
-                    'CVTOTAL': cv_total,
-                    'CVPUBLICHUMILIATION': cv_public,
-                    'CVMALICE': cv_malice,
-                    'CVUNWANTEDCONTACT': cv_contact
+                    'CVTOTAL': cyber_exp * 10,  # Scale to match dataset
+                    'CVPUBLICHUMILIATION': public_humiliation * 5,
+                    'CVMALICE': cyber_exp * 5,
+                    'CVUNWANTEDCONTACT': unwanted_contact * 5,
+                    'MEANPUBLICHUMILIATION': public_humiliation,
+                    'MEANMALICE': cyber_exp,
+                    'MEANDECEPTION': cyber_exp,
+                    'MEANUNWANTEDCONTACT': unwanted_contact
                 }
                 
+                # Convert to DataFrame
                 input_df = pd.DataFrame([input_data])
                 input_df = pd.get_dummies(input_df)
-
+                
+                # Ensure all feature columns are present
                 for col in resources['feature_columns']:
                     if col not in input_df.columns:
                         input_df[col] = 0
+                
+                # Reorder columns to match training data
                 input_df = input_df[resources['feature_columns']]
                 
+                # Make predictions
                 stress_pred = resources['stress_model'].predict(input_df)[0]
                 anxiety_pred = resources['anxiety_model'].predict(input_df)[0]
                 depression_pred = resources['depression_model'].predict(input_df)[0]
@@ -196,50 +212,81 @@ def main():
                 severity = ["Normal", "Mild", "Moderate", "Severe", "Extremely severe"]
                 
                 st.subheader("🔍 Your Mental Health Assessment Results")
+                
                 cols = st.columns(3)
                 cols[0].metric("Stress Level", severity[stress_pred])
                 cols[1].metric("Anxiety Level", severity[anxiety_pred])
                 cols[2].metric("Depression Level", severity[depression_pred])
                 
                 st.subheader("📊 Results Visualization")
-                graph_df = pd.DataFrame({
+                chart_data = pd.DataFrame({
                     "Category": ["Stress", "Anxiety", "Depression"],
-                    "Score": [stress_pred, anxiety_pred, depression_pred]
+                    "Level": [stress_pred, anxiety_pred, depression_pred]
                 })
-                st.bar_chart(graph_df.set_index("Category"))
+                st.bar_chart(chart_data.set_index("Category"), height=300)
                 
                 st.subheader("🌱 Personalized Recommendations")
                 for rec in get_recommendations(stress_pred, anxiety_pred, depression_pred):
                     st.write(f"- {rec}")
 
     elif page == "Chatbot":
-        st.title("💬 Talk to Your Support Chatbot")
+        st.title("💬 MindCare Chat Companion")
+        st.write("Talk to our supportive chatbot about how you're feeling")
+
         if "messages" not in st.session_state:
             st.session_state.messages = []
-        
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": "Hi there! I'm here to listen and support you. How are you feeling today?"
+            })
+
         for msg in st.session_state.messages:
             with st.chat_message(msg["role"]):
-                st.markdown(msg["content"])
-        
-        user_input = st.chat_input("How are you feeling?")
-        if user_input:
-            st.session_state.messages.append({"role": "user", "content": user_input})
-            with st.chat_message("user"):
-                st.markdown(user_input)
+                st.write(msg["content"])
 
-            bot_response = chatbot.respond(user_input)
-            st.session_state.messages.append({"role": "assistant", "content": bot_response})
+        if prompt := st.chat_input("Type your message here..."):
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            with st.chat_message("user"):
+                st.write(prompt)
+
+            response = chatbot.respond(prompt)
+            st.session_state.messages.append({"role": "assistant", "content": response})
             with st.chat_message("assistant"):
-                st.markdown(bot_response)
+                st.write(response)
 
     elif page == "Emergency Resources":
-        st.title("🚨 Emergency Mental Health Resources")
-        st.write("If you're in crisis or need immediate support, please reach out to these trusted resources:")
-        st.markdown("""
-        - 📞 **Suicide Prevention Hotline**: 1-800-273-TALK (8255)  
-        - 📱 **Crisis Text Line**: Text HOME to 741741  
-        - 🧑‍⚕️ **Local Mental Health Clinics**: Visit your nearest public health center  
-        - 🌐 **Online Therapy**: [BetterHelp](https://www.betterhelp.com), [Talkspace](https://www.talkspace.com)
+        st.title("🆘 Immediate Help Resources")
+        st.write("If you're in crisis or need immediate support, please reach out to these resources:")
+        
+        st.subheader("🌎 International Helplines")
+        cols = st.columns(2)
+        
+        with cols[0]:
+            st.write("""
+            - **India**: iCall – +91 9152987821
+            - **USA**: Suicide & Crisis Lifeline – Dial 988
+            - **UK**: Samaritans – 116 123
+            - **Canada**: Talk Suicide – 1-833-456-4566
+            """)
+            
+        with cols[1]:
+            st.write("""
+            - **Australia**: Lifeline – 13 11 14
+            - **Singapore**: SOS – 1800 221 4444
+            - **Global**: [IASP Crisis Centres](https://www.iasp.info/resources/Crisis_Centres/)
+            """)
+        
+        st.subheader("📱 Text/Chat Support")
+        st.write("""
+        - **Crisis Text Line**: Text HOME to 741741 (US/UK/Canada)
+        - [7 Cups](https://www.7cups.com/): Free online chat with trained listeners
+        """)
+        
+        st.subheader("💡 Remember")
+        st.write("""
+        - You are not alone in this
+        - Reaching out is a sign of strength
+        - Your feelings are valid and important
         """)
 
 if __name__ == "__main__":
