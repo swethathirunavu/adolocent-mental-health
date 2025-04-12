@@ -2,6 +2,7 @@ import streamlit as st
 import joblib
 import pandas as pd
 import random
+import cohere
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 
@@ -21,46 +22,19 @@ def load_data_and_models():
         'depression_model': model
     }
 
-# --- Chatbot Class ---
-class MentalHealthChatbot:
+# --- Cohere Chatbot Class ---
+class CohereChatbot:
     def __init__(self):
-        self.responses = {
-            "hello": [
-                "Hey there! I'm glad you're here. Want to talk about how you're feeling?",
-                "Hi! You're not alone. I'm here to support you. How's your day going?"
-            ],
-            "i am soo insecure": [
-                "You are more capable than you think. Everyone has their own pace and path.",
-                "Remember, your worth isn't defined by others. You have something special in you!"
-            ],
-            "everyone are bullying me": [
-                "I'm sorry to hear that. No one deserves to be bullied. You are strong for enduring this.",
-                "Bullying is never your fault. Talk to someone you trust and don’t keep it in."
-            ],
-            "stressed": [
-                "Take a deep breath. You’re doing the best you can, and that’s enough.",
-                "Pause, breathe, and remind yourself how far you’ve come. You’ve got this!"
-            ],
-            "anxiety": [
-                "It’s okay to feel anxious. Focus on one thing you can control right now.",
-                "Try grounding techniques — they really help bring your mind back to the present."
-            ],
-            "i feel depressed": [
-                "You are not alone. Even on dark days, your presence matters deeply.",
-                "Small steps still count. Let’s just take today one moment at a time."
-            ],
-            "default": [
-                "I'm here for you. Want to talk about what’s bothering you?",
-                "It’s okay to share. Sometimes saying it out loud makes a difference."
-            ]
-        }
+        self.client = cohere.Client(st.secrets["cohere_api_key"])  # Get API key from Streamlit secrets
 
-    def respond(self, message):
-        message = message.lower()
-        for key in self.responses:
-            if key in message:
-                return random.choice(self.responses[key])
-        return random.choice(self.responses["default"])
+    def respond(self, prompt):
+        response = self.client.generate(
+            model='xlarge',  # You can adjust this based on your requirements
+            prompt=prompt,
+            max_tokens=100,
+            temperature=0.7
+        )
+        return response.generations[0].text.strip()
 
 # --- Recommendations ---
 def get_recommendations(stress, anxiety, depression):
@@ -88,7 +62,7 @@ def get_recommendations(stress, anxiety, depression):
 def main():
     st.set_page_config(page_title="Mental Health Support", layout="wide")
     resources = load_data_and_models()
-    chatbot = MentalHealthChatbot()
+    chatbot = CohereChatbot()  # Use Cohere chatbot
 
     st.sidebar.title("Menu")
     page = st.sidebar.radio("Go to", ["Home", "Assessment", "Chatbot", "Emergency Resources"])
@@ -134,13 +108,6 @@ def main():
                 for idx, label in enumerate(["Stress", "Anxiety", "Depression"]):
                     cols[idx].metric(label, severity[stress_lvl])
 
-                st.subheader("📈 Visualizing Your Inputs")
-                graph_df = pd.DataFrame({
-                    "Category": ["Stress", "Anxiety", "Depression"],
-                    "Score": [stress, anxiety, depression]
-                })
-                st.bar_chart(graph_df.set_index("Category"))
-
                 st.subheader("🌼 Gentle Suggestions for You")
                 for rec in get_recommendations(stress_lvl, stress_lvl, stress_lvl):
                     st.write(f"- {rec}")
@@ -164,7 +131,7 @@ def main():
             with st.chat_message("user"):
                 st.write(prompt)
 
-            response = chatbot.respond(prompt)
+            response = chatbot.respond(prompt)  # Get response from Cohere
             st.session_state.messages.append({"role": "assistant", "content": response})
             with st.chat_message("assistant"):
                 st.write(response)
@@ -180,9 +147,10 @@ def main():
         - **🇦🇺 Australia**: Lifeline – 13 11 14
         - **🇸🇬 Singapore**: Samaritans of Singapore (SOS) – 1800 221 4444
         - **🌐 Global**: [IASP Crisis Centres](https://www.iasp.info/resources/Crisis_Centres/)
-
+        
         Please reach out — You deserve care, support, and love 💙
         """)
 
 if __name__ == "__main__":
     main()
+
