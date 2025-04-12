@@ -1,114 +1,145 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import joblib
 import random
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
 
-st.set_page_config(page_title="Adolescence Wellness", layout="wide")
-st.markdown("<h1 style='text-align: center;'>Adolescence Wellness 💫</h1>", unsafe_allow_html=True)
-
-# Load model and feature columns
+# --- Load and Cache Data and Model ---
 @st.cache_resource
-def load_model_and_features():
-    model = joblib.load("model.pkl")
-    df = pd.read_csv("mental_health_dataset_with_labels.csv")
+def load_model():
+    data = pd.read_csv("mental_health_dataset_with_labels.csv")
+    # Preprocess data
+    # Encode categorical variables
+    data['Family_income'] = data['Family_income'].map({'Stable': 0, 'Decreased': 1})
+    data['Do_you_work'] = data['Do_you_work'].map({'Yes': 1, 'No': 0})
+    # Add other necessary preprocessing steps here
 
-    if "Family_income" in df.columns:
-        df["Family_income"] = df["Family_income"].map({"Stable": 0, "Decreased": 1})
-    elif "Family income" in df.columns:
-        df["Family_income"] = df["Family income"].map({"Stable": 0, "Decreased": 1})
+    # Define features and target
+    features = ['Family_income', 'Do_you_work', 'Age', 'Education_Qualification', 'Physical_Activity']
+    X = data[features]
+    y = data['Depression_Level']  # Assuming this is the target column
 
-    if "Physical_activity" in df.columns:
-        df["Physical_activity"] = df["Physical_activity"].map({"High": 0, "Low": 1})
-    elif "Physical activity" in df.columns:
-        df["Physical_activity"] = df["Physical activity"].map({"High": 0, "Low": 1})
+    # Train model
+    model = RandomForestClassifier()
+    model.fit(X, y)
+    return model, features
 
-    feature_cols = ['Age', 'Gender', 'Sleep_hours', 'Social_media_usage',
-                    'Family_income', 'Physical_activity', 'School_support']
-    return model, feature_cols
+# --- Chatbot Class ---
+class MentalHealthChatbot:
+    def __init__(self):
+        self.responses = {
+            "hello": [
+                "Hey there! I'm glad you're here. Want to talk about how you're feeling?",
+                "Hi! You're not alone. I'm here to support you. How's your day going?"
+            ],
+            "insecure": [
+                "You are more capable than you think. Everyone has their own pace and path.",
+                "Remember, your worth isn't defined by others. You have something special in you!"
+            ],
+            "bully": [
+                "I'm sorry to hear that. No one deserves to be bullied. You are strong for enduring this.",
+                "Bullying is never your fault. Talk to someone you trust and don’t keep it in."
+            ],
+            "stress": [
+                "Take a deep breath. You’re doing the best you can, and that’s enough.",
+                "Pause, breathe, and remind yourself how far you’ve come. You’ve got this!"
+            ],
+            "anxiety": [
+                "It’s okay to feel anxious. Focus on one thing you can control right now.",
+                "Try grounding techniques — they really help bring your mind back to the present."
+            ],
+            "depression": [
+                "You are not alone. Even on dark days, your presence matters deeply.",
+                "Small steps still count. Let’s just take today one moment at a time."
+            ],
+            "default": [
+                "I'm here for you. Want to talk about what’s bothering you?",
+                "It’s okay to share. Sometimes saying it out loud makes a difference."
+            ]
+        }
 
-# Recommendations
-def get_suggestions(prediction):
-    if prediction == 0:
-        return "🟢 You're doing well! Keep maintaining your healthy routine. 😊"
-    elif prediction == 1:
-        return "🟡 You may be under moderate stress. Try relaxation techniques, talk to a friend, and get enough rest. 🌿"
+    def respond(self, message):
+        message = message.lower()
+        for key in self.responses:
+            if key in message:
+                return random.choice(self.responses[key])
+        return random.choice(self.responses["default"])
+
+# --- Recommendations ---
+def get_recommendations(level):
+    suggestions = []
+    if level == 'Severe':
+        suggestions.append("🌿 You might be feeling overwhelmed. It's okay. Try journaling or speaking to a counselor.")
+    elif level == 'Moderate':
+        suggestions.append("🧘 Consider short breathing exercises or guided meditation daily.")
+    elif level == 'Mild':
+        suggestions.append("🎧 Try listening to soothing music or practicing mindfulness before bed.")
     else:
-        return "🔴 High mental distress detected. It's okay to ask for help. Talk to a trusted adult or counselor. ❤️"
+        suggestions.append("💪 You’re doing better than you think. Keep up the good work!")
+    return suggestions
 
-# Emergency support
-def emergency_help():
-    st.markdown(\"\"\"
-    ### 🚨 Emergency Tips
-    - Contact a trusted teacher, parent, or counselor 📞
-    - Call your local child helpline 📱
-    - Take 3 deep breaths and drink water 🧘
-    - Write down your thoughts in a journal 📓
-    - You matter. Never hesitate to seek help 💗
-    \"\"\")
-
-# Chatbot responses
-def chatbot_response(user_input):
-    user_input = user_input.lower()
-    if "sad" in user_input or "depressed" in user_input:
-        return "I'm really sorry you're feeling this way. You're not alone. 💛"
-    elif "happy" in user_input:
-        return "That's wonderful! Keep spreading joy. 🌞"
-    elif "help" in user_input:
-        return "I'm here to help. Tell me more so I can support you."
-    else:
-        return random.choice([
-            "I'm here for you 💬",
-            "You're stronger than you think.",
-            "Would you like to talk about your day?",
-            "Everything will be okay 💫"
-        ])
-
-# Main function
+# --- Main Streamlit App ---
 def main():
-    model, feature_cols = load_model_and_features()
+    st.set_page_config(page_title="Adolescence Wellness", layout="wide")
+    model, features = load_model()
+    chatbot = MentalHealthChatbot()
 
-    menu = ["Prediction Tool", "Chatbot Friend", "Emergency"]
-    choice = st.sidebar.radio("Choose a feature", menu)
+    st.sidebar.title("Menu")
+    page = st.sidebar.radio("Go to", ["Home", "Assessment", "Chatbot", "Emergency Resources"])
 
-    if choice == "Prediction Tool":
-        st.subheader("🧠 Mental Health Risk Prediction")
+    if page == "Home":
+        st.title("🧠 Welcome to Adolescence Wellness")
+        st.subheader("We care about how you feel.")
 
-        age = st.slider("Age", 10, 19)
-        gender = st.selectbox("Gender", ["Male", "Female"])
-        sleep = st.slider("Average Sleep Hours", 0.0, 12.0, step=0.5)
-        social = st.slider("Social Media Usage (hours/day)", 0.0, 10.0, step=0.5)
-        family = st.selectbox("Family Income Status", ["Stable", "Decreased"])
-        activity = st.selectbox("Physical Activity Level", ["High", "Low"])
-        support = st.slider("School Support Rating", 1, 10)
+        with st.form("user_info"):
+            name = st.text_input("Your Name")
+            age = st.slider("Your Age", 10, 100, 18)
+            gender = st.selectbox("Gender", ["Prefer not to say", "Female", "Male", "Other"])
+            env = st.selectbox("Where are you coming from?", ["School", "College", "Workplace", "Other"])
+            submitted = st.form_submit_button("Save & Continue")
+            if submitted:
+                st.success(f"Hello {name}, we’re here to support you on this journey. Let’s move forward together 💖")
 
-        input_df = pd.DataFrame({
-            'Age': [age],
-            'Gender': [0 if gender == "Male" else 1],
-            'Sleep_hours': [sleep],
-            'Social_media_usage': [social],
-            'Family_income': [0 if family == "Stable" else 1],
-            'Physical_activity': [0 if activity == "High" else 1],
-            'School_support': [support]
-        })
+    elif page == "Assessment":
+        st.title("📊 Mental Health Assessment")
+        with st.form("assessment_form"):
+            col1, col2 = st.columns(2)
+            with col1:
+                family_income = st.selectbox("Family Income", ["Stable", "Decreased"])
+                do_you_work = st.selectbox("Do you work?", ["Yes", "No"])
+                age = st.slider("Your Age", 10, 100, 18)
+            with col2:
+                education = st.selectbox("Education Qualification", ["<= Secondary School", "Higher"])
+                physical_activity = st.selectbox("Physical Activity", ["Inactive(<1/2 hour)", "Active(>1/2 hour)"])
 
-        if st.button("Predict"):
-            prediction = model.predict(input_df)[0]
-            label = ["Low Risk", "Moderate Risk", "High Risk"][prediction]
-            st.success(f"Prediction: {label}")
-            st.info(get_suggestions(prediction))
+            submitted = st.form_submit_button("Analyze")
+            if submitted:
+                # Encode inputs
+                input_data = {
+                    'Family_income': 0 if family_income == 'Stable' else 1,
+                    'Do_you_work': 1 if do_you_work == 'Yes' else 0,
+                    'Age': age,
+                    'Education_Qualification': 0 if education == '<= Secondary School' else 1,
+                    'Physical_Activity': 0 if physical_activity == 'Inactive(<1/2 hour)' else 1
+                }
+                input_df = pd.DataFrame([input_data])
 
-    elif choice == "Chatbot Friend":
-        st.subheader("💬 Talk to Your Virtual Friend")
-        user_input = st.text_input("How are you feeling?")
-        if st.button("Send"):
-            if user_input.strip():
-                response = chatbot_response(user_input)
-                st.markdown(f"**Bot:** {response}")
+                # Predict
+                prediction = model.predict(input_df)[0]
+                st.subheader("💡 Your Mental State Overview")
+                st.write(f"Predicted Depression Level: {prediction}")
 
-    elif choice == "Emergency":
-        st.subheader("🚨 Emergency Help")
-        emergency_help()
+                st.subheader("🌼 Gentle Suggestions for You")
+                for rec in get_recommendations(prediction):
+                    st.write(f"- {rec}")
 
-if __name__ == "__main__":
-    main()
+    elif page == "Chatbot":
+        st.title("💬 Talk to Your Support Chatbot")
+
+        if "messages" not in st.session_state:
+            st.session_state.messages = []
+            st.session_state.messages.append({
+                "role": "assistant
+::contentReference[oaicite:8]{index=8}
+ 
