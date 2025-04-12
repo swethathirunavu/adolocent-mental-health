@@ -8,28 +8,33 @@ from sklearn.model_selection import train_test_split
 # --- Data Loading and Model Training (Cached) ---
 @st.cache_resource
 def load_data_and_models():
-    # Load your dataset (replace with your actual data loading)
-    data = pd.read_csv("data/mental_health_dataset_with_labels.csv")
+    # Load your dataset (updated path)
+    data = pd.read_csv("mental_health_dataset_with_labels.csv")
     
-    # Preprocessing (simplified - adapt to your dataset)
+    # Preprocessing
     X = data[['SUMSTRESS', 'SUMANXIETY', 'SUMDEPRESS', 'CVTOTAL']]
-    y_stress = data['STRESSLEVELS'].map({'Normal':0, 'Mild':1, 'Moderate':2, 'Severe':3, 'Extremely severe':4})
+    y_stress = data['STRESSLEVELS'].map({
+        'Normal': 0, 'Mild': 1, 'Moderate': 2, 'Severe': 3, 'Extremely severe': 4
+    })
     
-    # Train models (in a real app, you'd pre-train and save these)
+    # Train model
     X_train, X_test, y_train, y_test = train_test_split(X, y_stress, test_size=0.2)
     stress_model = RandomForestClassifier().fit(X_train, y_train)
     
     return {
         'stress_model': stress_model,
-        'anxiety_model': stress_model,  # Replace with actual anxiety model
-        'depression_model': stress_model  # Replace with actual depression model
+        'anxiety_model': stress_model,  # Replace with separate models if needed
+        'depression_model': stress_model
     }
 
 # --- Chatbot Class ---
 class MentalHealthChatbot:
     def __init__(self):
         self.responses = {
-            "hello": ["Hello! How are you feeling today?", "Hi there! What's on your mind?"],
+            "hello": [
+                "Hello! How are you feeling today?",
+                "Hi there! What's on your mind?"
+            ],
             "stress": [
                 "Stress can feel overwhelming. Try the 4-7-8 breathing technique.",
                 "When stressed, take a 5-minute walk outside. Nature helps reset your mind."
@@ -64,8 +69,7 @@ class MentalHealthChatbot:
 # --- Recommendation Engine ---
 def get_recommendations(stress, anxiety, depression):
     recommendations = []
-    
-    # Stress
+
     if stress >= 4:
         recommendations.extend([
             "🚨 Contact a mental health professional immediately",
@@ -73,21 +77,19 @@ def get_recommendations(stress, anxiety, depression):
         ])
     elif stress >= 2:
         recommendations.append("🧘 Try 10-minute guided meditation")
-    
-    # Anxiety
+
     if anxiety >= 4:
         recommendations.extend([
             "⚠️ Schedule a therapist appointment",
             "Limit caffeine and screen time before bed"
         ])
-    
-    # Depression
+
     if depression >= 4:
         recommendations.extend([
             "🆘 Reach out to a crisis hotline if needed",
             "Small step: Brush your teeth and change clothes today"
         ])
-    
+
     recommendations.append("💡 Remember: Progress isn't linear")
     return recommendations
 
@@ -95,11 +97,11 @@ def get_recommendations(stress, anxiety, depression):
 def main():
     st.set_page_config(page_title="Mental Health Support", layout="wide")
     
-    # Load resources
+    # Load models
     resources = load_data_and_models()
     chatbot = MentalHealthChatbot()
     
-    # Sidebar navigation
+    # Sidebar
     st.sidebar.title("Menu")
     page = st.sidebar.radio("Go to", ["Home", "Assessment", "Chatbot", "Emergency Resources"])
     
@@ -113,7 +115,7 @@ def main():
         - 💬 24/7 support chatbot
         - 🛟 Emergency resources
         """)
-    
+
     # Assessment Page
     elif page == "Assessment":
         st.title("Mental Health Assessment")
@@ -130,58 +132,48 @@ def main():
             submitted = st.form_submit_button("Analyze")
             
             if submitted:
-                # Predict (using dummy models - replace with real predictions)
                 input_data = pd.DataFrame({
                     'SUMSTRESS': [stress],
                     'SUMANXIETY': [anxiety],
                     'SUMDEPRESS': [depression],
-                    'CVTOTAL': [5]  # Example value
+                    'CVTOTAL': [5]  # Placeholder value
                 })
                 
                 stress_lvl = resources['stress_model'].predict(input_data)[0]
                 severity = ["Normal", "Mild", "Moderate", "Severe", "Extremely severe"]
                 
-                # Show results
                 st.subheader("Results")
                 cols = st.columns(3)
                 cols[0].metric("Stress", severity[stress_lvl])
-                cols[1].metric("Anxiety", severity[stress_lvl])  # Replace with real anxiety prediction
-                cols[2].metric("Depression", severity[stress_lvl])  # Replace with real depression prediction
+                cols[1].metric("Anxiety", severity[stress_lvl])
+                cols[2].metric("Depression", severity[stress_lvl])
                 
-                # Recommendations
                 st.subheader("Recommendations")
                 for rec in get_recommendations(stress_lvl, stress_lvl, stress_lvl):
                     st.write(f"• {rec}")
-    
+
     # Chatbot Page
     elif page == "Chatbot":
         st.title("Support Chatbot")
         
-        # Initialize chat history
         if "messages" not in st.session_state:
             st.session_state.messages = []
         
-        # Display chat messages
         for msg in st.session_state.messages:
             with st.chat_message(msg["role"]):
                 st.write(msg["content"])
         
-        # Chat input
         if prompt := st.chat_input("How are you feeling today?"):
-            # Add user message
             st.session_state.messages.append({"role": "user", "content": prompt})
             with st.chat_message("user"):
                 st.write(prompt)
             
-            # Get bot response
             response = chatbot.respond(prompt)
-            
-            # Add bot response
             st.session_state.messages.append({"role": "assistant", "content": response})
             with st.chat_message("assistant"):
                 st.write(response)
-    
-    # Emergency Resources
+
+    # Emergency Page
     elif page == "Emergency Resources":
         st.title("Emergency Help")
         st.write("""
