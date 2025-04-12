@@ -9,7 +9,7 @@ import random
 @st.cache_data
 def load_data_and_models():
     # Load dataset
-    df1 = pd.read_csv("Dataset1.csv")
+    df1 = pd.read_csv("mental_health_dataset_with_labels.csv")
     
     # Drop NaN rows (or use df1.fillna(0) if you prefer filling)
     df1 = df1.dropna()
