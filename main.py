@@ -15,19 +15,24 @@ def load_data_and_models():
     df1 = df1.dropna()
     
     # Separate features and targets
-    features = df1.drop(['Depression', 'Stress', 'Bullying', 'Insecurity'], axis=1)
-    y_depress = df1['Depression']
-    y_stress = df1['Stress']
-    y_bully = df1['Bullying']
-    y_insecure = df1['Insecurity']
+    features = df1.drop(['Depression', 'Stress', 'Anxiety'], axis=1)  # Changed to include Anxiety instead of Bullying/Insecurity
     
-    # Train models
-    depression_model = RandomForestClassifier().fit(features, y_depress)
-    stress_model = RandomForestClassifier().fit(features, y_stress)
-    bully_model = RandomForestClassifier().fit(features, y_bully)
-    insecure_model = RandomForestClassifier().fit(features, y_insecure)
+    # Create dummy variables to ensure consistent columns
+    features_encoded = pd.get_dummies(features)
+    feature_columns = features_encoded.columns.tolist()
     
-    return depression_model, stress_model, bully_model, insecure_model, df1
+    # Train models for the three conditions used in the assessment
+    depression_model = RandomForestClassifier().fit(features_encoded, df1['Depression'])
+    stress_model = RandomForestClassifier().fit(features_encoded, df1['Stress'])
+    anxiety_model = RandomForestClassifier().fit(features_encoded, df1['Anxiety'])  # Added anxiety model
+    
+    return {
+        'depression_model': depression_model,
+        'stress_model': stress_model, 
+        'anxiety_model': anxiety_model,
+        'feature_columns': feature_columns,
+        'data': df1
+    }
 
 
 # --- Chatbot Class ---
@@ -139,42 +144,50 @@ def main():
             submit = st.form_submit_button("Get My Report")
 
         if submit:
-            input_data = {
-                'GENDER': gender, 'AGE': age, 'MARITAL_STATUS': marital_status,
-                'EDUCATION_LEVEL': education, 'UNIVERSITY_STATUS': university,
-                'ACTIVE_SOCIAL_MEDIA': social_media, 'TIME_SPENT_SOCIAL_MEDIA': social_media_time,
-                'CVTOTAL': cyber_exp * 10, 'CVPUBLICHUMILIATION': public_humiliation * 5,
-                'CVMALICE': cyber_exp * 5, 'CVUNWANTEDCONTACT': unwanted_contact * 5,
-                'MEANPUBLICHUMILIATION': public_humiliation,
-                'MEANMALICE': cyber_exp, 'MEANDECEPTION': cyber_exp,
-                'MEANUNWANTEDCONTACT': unwanted_contact
-            }
+            try:
+                input_data = {
+                    'GENDER': gender, 'AGE': age, 'MARITAL_STATUS': marital_status,
+                    'EDUCATION_LEVEL': education, 'UNIVERSITY_STATUS': university,
+                    'ACTIVE_SOCIAL_MEDIA': social_media, 'TIME_SPENT_SOCIAL_MEDIA': social_media_time,
+                    'CVTOTAL': cyber_exp * 10, 'CVPUBLICHUMILIATION': public_humiliation * 5,
+                    'CVMALICE': cyber_exp * 5, 'CVUNWANTEDCONTACT': unwanted_contact * 5,
+                    'MEANPUBLICHUMILIATION': public_humiliation,
+                    'MEANMALICE': cyber_exp, 'MEANDECEPTION': cyber_exp,
+                    'MEANUNWANTEDCONTACT': unwanted_contact
+                }
 
-            input_df = pd.DataFrame([input_data])
-            input_df = pd.get_dummies(input_df)
-            for col in resources['feature_columns']:
-                if col not in input_df.columns:
-                    input_df[col] = 0
-            input_df = input_df[resources['feature_columns']]
+                input_df = pd.DataFrame([input_data])
+                input_df = pd.get_dummies(input_df)
+                
+                # Create missing columns
+                for col in resources['feature_columns']:
+                    if col not in input_df.columns:
+                        input_df[col] = 0
+                
+                # Keep only columns that were used during training
+                input_df = input_df[resources['feature_columns']]
 
-            stress = resources['stress_model'].predict(input_df)[0]
-            anxiety = resources['anxiety_model'].predict(input_df)[0]
-            depression = resources['depression_model'].predict(input_df)[0]
+                stress = resources['stress_model'].predict(input_df)[0]
+                anxiety = resources['anxiety_model'].predict(input_df)[0]
+                depression = resources['depression_model'].predict(input_df)[0]
 
-            severity = ["Normal", "Mild", "Moderate", "Severe", "Extremely severe"]
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Stress Level", severity[stress])
-            col2.metric("Anxiety Level", severity[anxiety])
-            col3.metric("Depression Level", severity[depression])
+                severity = ["Normal", "Mild", "Moderate", "Severe", "Extremely severe"]
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Stress Level", severity[stress])
+                col2.metric("Anxiety Level", severity[anxiety])
+                col3.metric("Depression Level", severity[depression])
 
-            st.bar_chart(pd.DataFrame({
-                "Category": ["Stress", "Anxiety", "Depression"],
-                "Level": [stress, anxiety, depression]
-            }).set_index("Category"))
+                st.bar_chart(pd.DataFrame({
+                    "Category": ["Stress", "Anxiety", "Depression"],
+                    "Level": [stress, anxiety, depression]
+                }).set_index("Category"))
 
-            st.subheader("🌱 Recommendations")
-            for rec in get_recommendations(stress, anxiety, depression):
-                st.write(f"- {rec}")
+                st.subheader("🌱 Recommendations")
+                for rec in get_recommendations(stress, anxiety, depression):
+                    st.write(f"- {rec}")
+            
+            except Exception as e:
+                st.error(f"An error occurred: {e}. Please ensure your dataset structure matches the expected format.")
 
     elif page == "Chatbot":
         st.title("💬 Chat with MindCare Bot")
