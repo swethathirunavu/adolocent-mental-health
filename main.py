@@ -3,35 +3,52 @@ import pandas as pd
 import joblib
 from sklearn.ensemble import RandomForestClassifier
 import random
+import os
 
 # --- Cached Data Loading and Model ---
 
 @st.cache_data
 def load_data_and_models():
+    # Check if dataset exists
+    if not os.path.exists("mental_health_dataset_with_labels.csv"):
+        raise FileNotFoundError("mental_health_dataset_with_labels.csv not found in the current directory")
+
     # Load dataset
     df1 = pd.read_csv("mental_health_dataset_with_labels.csv")
     
     # Drop NaN rows (or use df1.fillna(0) if you prefer filling)
-    df1 = df1.dropna()
+    df1 = df1.dropna(subset=['Depression', 'Stress', 'Anxiety'])
     
     # Separate features and targets
-    features = df1.drop(['Depression', 'Stress', 'Anxiety'], axis=1)  # Changed to include Anxiety instead of Bullying/Insecurity
+    features = df1.drop(['Depression', 'Stress', 'Anxiety', 'Bullied', 'Insecure'], axis=1, errors='ignore')
+    
+    # Convert categorical columns to string type to avoid encoding errors
+    for col in features.select_dtypes(include=['object']).columns:
+        features[col] = features[col].astype(str)
     
     # Create dummy variables to ensure consistent columns
     features_encoded = pd.get_dummies(features)
     feature_columns = features_encoded.columns.tolist()
     
     # Train models for the three conditions used in the assessment
-    depression_model = RandomForestClassifier().fit(features_encoded, df1['Depression'])
-    stress_model = RandomForestClassifier().fit(features_encoded, df1['Stress'])
-    anxiety_model = RandomForestClassifier().fit(features_encoded, df1['Anxiety'])  # Added anxiety model
+    depression_model = RandomForestClassifier(random_state=42).fit(features_encoded, df1['Depression'])
+    stress_model = RandomForestClassifier(random_state=42).fit(features_encoded, df1['Stress'])
+    anxiety_model = RandomForestClassifier(random_state=42).fit(features_encoded, df1['Anxiety'])
+    
+    # Get the unique values from the target columns to understand their range
+    depression_values = df1['Depression'].unique().tolist()
+    stress_values = df1['Stress'].unique().tolist()
+    anxiety_values = df1['Anxiety'].unique().tolist()
     
     return {
         'depression_model': depression_model,
         'stress_model': stress_model, 
         'anxiety_model': anxiety_model,
         'feature_columns': feature_columns,
-        'data': df1
+        'data': df1,
+        'depression_values': depression_values,
+        'stress_values': stress_values,
+        'anxiety_values': anxiety_values
     }
 
 
@@ -43,23 +60,23 @@ class MentalHealthChatbot:
                 "Hey there! I'm glad you're here. Want to talk about how you're feeling?",
                 "Hi! You're not alone. I'm here to support you. How's your day going?"
             ],
-            "insecure": [
+            "i am insecure": [
                 "You are more capable than you think. Everyone has their own pace and path.",
                 "Remember, your worth isn't defined by others. You have something special in you!"
             ],
-            "bully": [
+            "everyone are bullying me": [
                 "I'm sorry to hear that. No one deserves to be bullied. You are strong for enduring this.",
                 "Bullying is never your fault. Talk to someone you trust and don't keep it in."
             ],
-            "stress": [
+            "i am very stressed": [
                 "Take a deep breath. You're doing the best you can, and that's enough.",
                 "Pause, breathe, and remind yourself how far you've come. You've got this!"
             ],
-            "anxiety": [
+            "i have anxiety": [
                 "It's okay to feel anxious. Focus on one thing you can control right now.",
                 "Try grounding techniques — they really help bring your mind back to the present."
             ],
-            "depression": [
+            "i am feeling depressed": [
                 "You are not alone. Even on dark days, your presence matters deeply.",
                 "Small steps still count. Let's just take today one moment at a time."
             ],
@@ -80,6 +97,11 @@ class MentalHealthChatbot:
 def get_recommendations(stress, anxiety, depression):
     suggestions = []
     severity = ["Normal", "Mild", "Moderate", "Severe", "Extremely severe"]
+    
+    # Make sure the indices are within valid range
+    stress_index = min(max(stress - 1, 0), len(severity)-1)  # Adjust by -1 since your data uses 1-5 but indices are 0-4
+    anxiety_index = min(max(anxiety - 1, 0), len(severity)-1)
+    depression_index = min(max(depression - 1, 0), len(severity)-1)
 
     if stress >= 3:
         suggestions.append("🌿 You might be feeling overwhelmed. Try journaling or speaking to a counselor.")
@@ -96,14 +118,48 @@ def get_recommendations(stress, anxiety, depression):
     elif depression >= 1:
         suggestions.append("📖 Writing down three things you're grateful for each day can help.")
 
-    suggestions.append(f"💡 Your assessment: Stress - {severity[stress]}, Anxiety - {severity[anxiety]}, Depression - {severity[depression]}")
+    suggestions.append(f"💡 Your assessment: Stress - {severity[stress_index]}, Anxiety - {severity[anxiety_index]}, Depression - {severity[depression_index]}")
     suggestions.append("💪 Remember, progress takes time. You're stronger than you think.")
     return suggestions
+
+# --- Input Data Preprocessing ---
+def preprocess_input(input_data, feature_columns):
+    # Convert to DataFrame
+    input_df = pd.DataFrame([input_data])
+    
+    # Convert categorical columns to string to match training data
+    for col in input_df.select_dtypes(include=['object']).columns:
+        input_df[col] = input_df[col].astype(str)
+    
+    # Create dummy variables
+    input_df = pd.get_dummies(input_df)
+    
+    # Handle missing columns
+    for col in feature_columns:
+        if col not in input_df.columns:
+            input_df[col] = 0
+    
+    # Keep only columns used in training
+    missing_cols = set(feature_columns) - set(input_df.columns)
+    for col in missing_cols:
+        input_df[col] = 0
+    
+    return input_df[feature_columns]
 
 # --- Main App ---
 def main():
     st.set_page_config(page_title="MindCare App", layout="wide")
-    resources = load_data_and_models()
+    
+    try:
+        resources = load_data_and_models()
+        st.session_state["resources"] = resources
+    except FileNotFoundError:
+        st.error("ERROR: The mental_health_dataset_with_labels.csv file was not found. Please make sure it's in the same directory as this script.")
+        st.stop()
+    except Exception as e:
+        st.error(f"ERROR loading data and models: {e}")
+        st.stop()
+        
     chatbot = MentalHealthChatbot()
 
     st.sidebar.title("Navigation")
@@ -145,49 +201,79 @@ def main():
 
         if submit:
             try:
+                # Create input data dictionary matching your dataset structure
                 input_data = {
-                    'GENDER': gender, 'AGE': age, 'MARITAL_STATUS': marital_status,
-                    'EDUCATION_LEVEL': education, 'UNIVERSITY_STATUS': university,
-                    'ACTIVE_SOCIAL_MEDIA': social_media, 'TIME_SPENT_SOCIAL_MEDIA': social_media_time,
-                    'CVTOTAL': cyber_exp * 10, 'CVPUBLICHUMILIATION': public_humiliation * 5,
-                    'CVMALICE': cyber_exp * 5, 'CVUNWANTEDCONTACT': unwanted_contact * 5,
+                    'GENDER': gender, 
+                    'AGE': age, 
+                    'MARITAL_STATUS': marital_status,
+                    'EDUCATION_LEVEL': education, 
+                    'UNIVERSITY_STATUS': university,
+                    'ACTIVE_SOCIAL_MEDIA': social_media, 
+                    'TIME_SPENT_SOCIAL_MEDIA': social_media_time,
+                    'CVTOTAL': cyber_exp * 10, 
+                    'CVPUBLICHUMILIATION': public_humiliation * 5,
+                    'CVMALICE': cyber_exp * 5, 
+                    'CVUNWANTEDCONTACT': unwanted_contact * 5,
                     'MEANPUBLICHUMILIATION': public_humiliation,
-                    'MEANMALICE': cyber_exp, 'MEANDECEPTION': cyber_exp,
+                    'MEANMALICE': cyber_exp, 
+                    'MEANDECEPTION': cyber_exp,
                     'MEANUNWANTEDCONTACT': unwanted_contact
                 }
 
-                input_df = pd.DataFrame([input_data])
-                input_df = pd.get_dummies(input_df)
+                # Preprocess input
+                input_df = preprocess_input(input_data, resources['feature_columns'])
                 
-                # Create missing columns
-                for col in resources['feature_columns']:
-                    if col not in input_df.columns:
-                        input_df[col] = 0
-                
-                # Keep only columns that were used during training
-                input_df = input_df[resources['feature_columns']]
+                # Add error handling for predictions
+                try:
+                    # Get predictions
+                    stress_pred = resources['stress_model'].predict(input_df)[0]
+                    anxiety_pred = resources['anxiety_model'].predict(input_df)[0]
+                    depression_pred = resources['depression_model'].predict(input_df)[0]
+                    
+                    # Convert to integers if needed
+                    stress = int(stress_pred)
+                    anxiety = int(anxiety_pred)
+                    depression = int(depression_pred)
+                    
+                    # Show the predicted levels
+                    severity = ["Normal", "Mild", "Moderate", "Severe", "Extremely severe"]
+                    stress_index = min(max(stress - 1, 0), len(severity)-1)  # Adjust for 1-based indices
+                    anxiety_index = min(max(anxiety - 1, 0), len(severity)-1)
+                    depression_index = min(max(depression - 1, 0), len(severity)-1)
+                    
+                    col1, col2, col3 = st.columns(3)
+                    col1.metric("Stress Level", severity[stress_index])
+                    col2.metric("Anxiety Level", severity[anxiety_index])
+                    col3.metric("Depression Level", severity[depression_index])
 
-                stress = resources['stress_model'].predict(input_df)[0]
-                anxiety = resources['anxiety_model'].predict(input_df)[0]
-                depression = resources['depression_model'].predict(input_df)[0]
+                    # Show bar chart
+                    chart_data = pd.DataFrame({
+                        "Category": ["Stress", "Anxiety", "Depression"],
+                        "Level": [stress, anxiety, depression]
+                    }).set_index("Category")
+                    st.bar_chart(chart_data)
 
-                severity = ["Normal", "Mild", "Moderate", "Severe", "Extremely severe"]
-                col1, col2, col3 = st.columns(3)
-                col1.metric("Stress Level", severity[stress])
-                col2.metric("Anxiety Level", severity[anxiety])
-                col3.metric("Depression Level", severity[depression])
-
-                st.bar_chart(pd.DataFrame({
-                    "Category": ["Stress", "Anxiety", "Depression"],
-                    "Level": [stress, anxiety, depression]
-                }).set_index("Category"))
-
-                st.subheader("🌱 Recommendations")
-                for rec in get_recommendations(stress, anxiety, depression):
-                    st.write(f"- {rec}")
+                    # Show recommendations
+                    st.subheader("🌱 Recommendations")
+                    for rec in get_recommendations(stress, anxiety, depression):
+                        st.write(f"- {rec}")
+                    
+                    # Show the raw prediction values for debugging
+                    with st.expander("Debug Information"):
+                        st.write(f"Raw predictions: Stress={stress_pred}, Anxiety={anxiety_pred}, Depression={depression_pred}")
+                    
+                except (IndexError, ValueError) as e:
+                    st.error(f"Error with model predictions: {e}")
+                    st.write("Debug info:")
+                    st.write(f"Raw predictions: Stress={resources['stress_model'].predict(input_df)[0]}, " 
+                             f"Anxiety={resources['anxiety_model'].predict(input_df)[0]}, "
+                             f"Depression={resources['depression_model'].predict(input_df)[0]}")
+                    st.write(f"Expected value ranges: Depression={resources['depression_values']}, " 
+                             f"Anxiety={resources['anxiety_values']}, Stress={resources['stress_values']}")
             
             except Exception as e:
                 st.error(f"An error occurred: {e}. Please ensure your dataset structure matches the expected format.")
+                st.error("If this is your first time running the app, please check if the dataset file exists.")
 
     elif page == "Chatbot":
         st.title("💬 Chat with MindCare Bot")
