@@ -6,7 +6,7 @@ import random
 
 # --- Cached Data Loading and Model ---
 
- @st.cache_data
+@st.cache_data
 def load_data_and_models():
     # Load dataset
     df1 = pd.read_csv("Dataset1.csv")
