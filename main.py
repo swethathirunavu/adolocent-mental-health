@@ -1,12 +1,11 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, ExtraTreesClassifier, AdaBoostClassifier
 from sklearn.model_selection import train_test_split, GridSearchCV, cross_val_score
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
 from sklearn.impute import SimpleImputer
-import xgboost as xgb
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -223,12 +222,11 @@ class EnhancedMentalHealthPredictor:
         for target in target_cols:
             y = df_processed[target]
             
-            # Convert labels to 0-based indexing for XGBoost compatibility
-            # Original: [1, 2, 3, 4, 5] -> [0, 1, 2, 3, 4]
-            y_encoded = y - 1
+            # No need for label encoding since we removed XGBoost
+            # Keep original 1-5 scale for scikit-learn models
             
             # Split data
-            X_train, X_test, y_train, y_test = train_test_split(X, y_encoded, test_size=0.2, random_state=42, stratify=y_encoded)
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
             
             # Scale features
             scaler = StandardScaler()
@@ -236,11 +234,12 @@ class EnhancedMentalHealthPredictor:
             X_test_scaled = scaler.transform(X_test)
             self.scalers[target] = scaler
             
-            # Try multiple algorithms
+            # Try multiple algorithms - Enhanced without XGBoost
             models_to_try = {
-                
                 'RandomForest': RandomForestClassifier(random_state=42),
-                'GradientBoosting': GradientBoostingClassifier(random_state=42)
+                'GradientBoosting': GradientBoostingClassifier(random_state=42),
+                'ExtraTrees': ExtraTreesClassifier(random_state=42),
+                'AdaBoost': AdaBoostClassifier(random_state=42)
             }
             
             best_model = None
@@ -249,24 +248,36 @@ class EnhancedMentalHealthPredictor:
             
             for model_name, model in models_to_try.items():
                 try:
-                    # Hyperparameter tuning
-                    if model_name == 'XGBoost':
+                    # Enhanced hyperparameter tuning for better accuracy
+                    if model_name == 'RandomForest':
                         param_grid = {
-                            'n_estimators': [100, 200],
-                            'max_depth': [3, 5, 7],
-                            'learning_rate': [0.1, 0.2]
+                            'n_estimators': [200, 300, 500],
+                            'max_depth': [10, 15, 20, None],
+                            'min_samples_split': [2, 5, 10],
+                            'min_samples_leaf': [1, 2, 4],
+                            'max_features': ['sqrt', 'log2']
                         }
-                    elif model_name == 'RandomForest':
+                    elif model_name == 'GradientBoosting':
                         param_grid = {
-                            'n_estimators': [100, 200],
-                            'max_depth': [5, 10, None],
-                            'min_samples_split': [2, 5]
+                            'n_estimators': [200, 300],
+                            'max_depth': [4, 6, 8],
+                            'learning_rate': [0.05, 0.1, 0.15],
+                            'min_samples_split': [2, 5],
+                            'min_samples_leaf': [1, 2]
                         }
-                    else:  # GradientBoosting
+                    elif model_name == 'ExtraTrees':
                         param_grid = {
-                            'n_estimators': [100, 200],
-                            'max_depth': [3, 5],
-                            'learning_rate': [0.1, 0.2]
+                            'n_estimators': [200, 300],
+                            'max_depth': [10, 15, None],
+                            'min_samples_split': [2, 5],
+                            'min_samples_leaf': [1, 2],
+                            'max_features': ['sqrt', 'log2']
+                        }
+                    else:  # AdaBoost
+                        param_grid = {
+                            'n_estimators': [100, 200, 300],
+                            'learning_rate': [0.5, 1.0, 1.5],
+                            'algorithm': ['SAMME', 'SAMME.R']
                         }
                     
                     grid_search = GridSearchCV(model, param_grid, cv=3, scoring='accuracy', n_jobs=-1, error_score='raise')
@@ -333,9 +344,8 @@ class EnhancedMentalHealthPredictor:
                 # Scale input
                 input_scaled = self.scalers[target].transform([input_data])
                 
-                # Predict (returns 0-4, need to convert back to 1-5)
-                pred_encoded = self.models[target].predict(input_scaled)[0]
-                pred = pred_encoded + 1  # Convert back to original scale
+                # Predict (now returns original 1-5 scale)
+                pred = self.models[target].predict(input_scaled)[0]
                 prob = self.models[target].predict_proba(input_scaled)[0]
                 
                 predictions[target] = int(pred)
@@ -1190,6 +1200,7 @@ def show_emergency_resources():
 
 if __name__ == "__main__":
     main()
+
 
 
 
