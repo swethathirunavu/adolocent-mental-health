@@ -1,1100 +1,316 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import joblib
-import plotly.express as px
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
-from sklearn.linear_model import LogisticRegression
-from sklearn.svm import SVC
-from sklearn.model_selection import train_test_split, cross_val_score
-from sklearn.preprocessing import StandardScaler, LabelEncoder
-from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
+from sklearn.ensemble import RandomForestClassifier
 import random
 import os
-from datetime import datetime
-import warnings
-warnings.filterwarnings('ignore')
 
-# --- Enhanced Data Generation and Model Training ---
+# --- Cached Data Loading and Model ---
 
 @st.cache_data
-def generate_synthetic_data():
-    """Generate a comprehensive synthetic mental health dataset"""
-    np.random.seed(42)
-    n_samples = 2000  # Reduced for faster processing
-    
-    # Demographics
-    genders = ['Male', 'Female', 'Non-binary']
-    ages = ['<18 years old', '19-24 years old', '25-34 years old', '35-44 years old', '>45 years old']
-    marital_statuses = ['Single', 'Married', 'Divorced', 'Widowed']
-    education_levels = ['High School', 'Diploma/Foundation', 'Bachelor Degree', 'Master Degree', 'PhD']
-    university_types = ['Public Universities', 'Private Universities', 'Community College']
-    social_media_activity = ['Less active', 'Moderately active', 'Active', 'Very active']
-    time_spent = ['<1 hour', '1-2 hours', '3-4 hours', '5-6 hours', '7-10 hours', '>10 hours']
-    
-    data = []
-    for i in range(n_samples):
-        # Generate correlated features
-        age_category = np.random.choice(ages, p=[0.15, 0.25, 0.25, 0.20, 0.15])
-        gender = np.random.choice(genders, p=[0.48, 0.50, 0.02])
-        
-        # Age-related correlations
-        if age_category in ['<18 years old', '19-24 years old']:
-            social_media_prob = [0.05, 0.15, 0.35, 0.45]
-            time_prob = [0.05, 0.1, 0.15, 0.2, 0.3, 0.2]
-        else:
-            social_media_prob = [0.2, 0.3, 0.3, 0.2]
-            time_prob = [0.15, 0.25, 0.25, 0.2, 0.1, 0.05]
-        
-        social_activity = np.random.choice(social_media_activity, p=social_media_prob)
-        time_on_social = np.random.choice(time_spent, p=time_prob)
-        
-        # Cyberbullying experiences (higher for younger demographics)
-        cyber_multiplier = 2 if age_category in ['<18 years old', '19-24 years old'] else 1
-        cyber_exp = max(1, min(10, int(np.random.exponential(2) * cyber_multiplier)))
-        public_humiliation = max(1, min(10, int(np.random.exponential(1.5) * cyber_multiplier)))
-        unwanted_contact = max(1, min(10, int(np.random.exponential(1.8) * cyber_multiplier)))
-        malice = max(1, min(10, int(np.random.exponential(1.6) * cyber_multiplier)))
-        
-        # Calculate composite scores
-        cv_total = cyber_exp * 10 + np.random.randint(-20, 21)
-        cv_public = public_humiliation * 5 + np.random.randint(-10, 11)
-        cv_malice = malice * 5 + np.random.randint(-10, 11)
-        cv_unwanted = unwanted_contact * 5 + np.random.randint(-10, 11)
-        
-        # Mental health outcomes (correlated with experiences)
-        stress_base = (cyber_exp + public_humiliation + unwanted_contact) / 3
-        anxiety_base = (cyber_exp * 1.2 + unwanted_contact * 1.1) / 2
-        depression_base = (public_humiliation * 1.3 + malice * 1.1) / 2
-        
-        # Add some randomness and ensure realistic distributions
-        stress = max(1, min(5, int(stress_base + np.random.normal(0, 0.8))))
-        anxiety = max(1, min(5, int(anxiety_base + np.random.normal(0, 0.8))))
-        depression = max(1, min(5, int(depression_base + np.random.normal(0, 0.8))))
-        
-        # Binary outcomes based on severity
-        bullied = 1 if (cyber_exp > 5 or public_humiliation > 6) else 0
-        insecure = 1 if (anxiety > 3 or depression > 3) else 0
-        
-        data.append({
-            'GENDER': gender,
-            'AGE': age_category,
-            'MARITAL_STATUS': np.random.choice(marital_statuses, p=[0.4, 0.35, 0.15, 0.1]),
-            'EDUCATION_LEVEL': np.random.choice(education_levels, p=[0.15, 0.2, 0.35, 0.25, 0.05]),
-            'UNIVERSITY_STATUS': np.random.choice(university_types, p=[0.6, 0.3, 0.1]),
-            'ACTIVE_SOCIAL_MEDIA': social_activity,
-            'TIME_SPENT_SOCIAL_MEDIA': time_on_social,
-            'CVTOTAL': cv_total,
-            'CVPUBLICHUMILIATION': cv_public,
-            'CVMALICE': cv_malice,
-            'CVUNWANTEDCONTACT': cv_unwanted,
-            'MEANPUBLICHUMILIATION': public_humiliation,
-            'MEANMALICE': malice,
-            'MEANDECEPTION': max(1, min(10, int(np.random.exponential(1.4) * cyber_multiplier))),
-            'MEANUNWANTEDCONTACT': unwanted_contact,
-            'Depression': depression,
-            'Stress': stress,
-            'Anxiety': anxiety,
-            'Bullied': bullied,
-            'Insecure': insecure
-        })
-    
-    return pd.DataFrame(data)
+def load_data_and_models():
+    # Check if dataset exists
+    if not os.path.exists("mental_health_dataset_with_labels.csv"):
+        raise FileNotFoundError("mental_health_dataset_with_labels.csv not found in the current directory")
 
-@st.cache_data
-def load_and_prepare_data():
-    """Load or generate data and prepare it for modeling"""
+    # Load dataset
+    df1 = pd.read_csv("mental_health_dataset_with_labels.csv")
     
-    # Generate synthetic data
-    df = generate_synthetic_data()
-    st.info("🔄 Generated synthetic dataset")
+    # Drop NaN rows (or use df1.fillna(0) if you prefer filling)
+    df1 = df1.dropna(subset=['Depression', 'Stress', 'Anxiety'])
     
-    # Clean the data
-    df = df.dropna()
+    # Separate features and targets
+    features = df1.drop(['Depression', 'Stress', 'Anxiety', 'Bullied', 'Insecure'], axis=1, errors='ignore')
     
-    # Prepare features
-    feature_cols = [col for col in df.columns if col not in ['Depression', 'Stress', 'Anxiety', 'Bullied', 'Insecure']]
-    X = df[feature_cols].copy()
+    # Convert categorical columns to string type to avoid encoding errors
+    for col in features.select_dtypes(include=['object']).columns:
+        features[col] = features[col].astype(str)
     
-    # Encode categorical variables
-    label_encoders = {}
-    for col in X.select_dtypes(include=['object']).columns:
-        le = LabelEncoder()
-        X[col] = le.fit_transform(X[col].astype(str))
-        label_encoders[col] = le
+    # Create dummy variables to ensure consistent columns
+    features_encoded = pd.get_dummies(features)
+    feature_columns = features_encoded.columns.tolist()
     
-    return df, X, label_encoders
-
-@st.cache_data
-def train_models(X, y_dict):
-    """Train multiple models and return their performance metrics"""
+    # Train models for the three conditions used in the assessment
+    depression_model = RandomForestClassifier(random_state=42).fit(features_encoded, df1['Depression'])
+    stress_model = RandomForestClassifier(random_state=42).fit(features_encoded, df1['Stress'])
+    anxiety_model = RandomForestClassifier(random_state=42).fit(features_encoded, df1['Anxiety'])
     
-    models = {
-        'Random Forest': RandomForestClassifier(n_estimators=50, random_state=42, max_depth=8),
-        'Gradient Boosting': GradientBoostingClassifier(random_state=42, max_depth=5, n_estimators=50),
-        'Logistic Regression': LogisticRegression(random_state=42, max_iter=500),
+    # Get the unique values from the target columns to understand their range
+    depression_values = df1['Depression'].unique().tolist()
+    stress_values = df1['Stress'].unique().tolist()
+    anxiety_values = df1['Anxiety'].unique().tolist()
+    
+    return {
+        'depression_model': depression_model,
+        'stress_model': stress_model, 
+        'anxiety_model': anxiety_model,
+        'feature_columns': feature_columns,
+        'data': df1,
+        'depression_values': depression_values,
+        'stress_values': stress_values,
+        'anxiety_values': anxiety_values
     }
-    
-    results = {}
-    model_performance = {}
-    
-    for target in ['Depression', 'Stress', 'Anxiety']:
-        y = y_dict[target]
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
-        
-        # Scale features for Logistic Regression
-        scaler = StandardScaler()
-        X_train_scaled = scaler.fit_transform(X_train)
-        X_test_scaled = scaler.transform(X_test)
-        
-        target_results = {}
-        target_performance = {}
-        
-        for name, model in models.items():
-            try:
-                # Use scaled data for Logistic Regression
-                if name == 'Logistic Regression':
-                    model.fit(X_train_scaled, y_train)
-                    y_pred = model.predict(X_test_scaled)
-                    y_prob = model.predict_proba(X_test_scaled)
-                else:
-                    model.fit(X_train, y_train)
-                    y_pred = model.predict(X_test)
-                    y_prob = model.predict_proba(X_test)
-                
-                # Calculate metrics
-                accuracy = accuracy_score(y_test, y_pred)
-                cv_scores = cross_val_score(model, X_train_scaled if name == 'Logistic Regression' else X_train, y_train, cv=3)
-                
-                target_results[name] = {
-                    'model': model,
-                    'scaler': scaler if name == 'Logistic Regression' else None,
-                    'accuracy': accuracy,
-                    'cv_mean': cv_scores.mean(),
-                    'cv_std': cv_scores.std(),
-                    'predictions': y_pred,
-                    'probabilities': y_prob,
-                    'actual': y_test
-                }
-                
-                target_performance[name] = {
-                    'accuracy': accuracy,
-                    'cv_mean': cv_scores.mean(),
-                    'cv_std': cv_scores.std()
-                }
-                
-            except Exception as e:
-                st.error(f"Error training {name} for {target}: {e}")
-                continue
-        
-        results[target] = target_results
-        model_performance[target] = target_performance
-    
-    return results, model_performance
 
-# --- Enhanced Chatbot ---
-class EnhancedMentalHealthChatbot:
+
+# --- Chatbot Class ---
+class MentalHealthChatbot:
     def __init__(self):
         self.responses = {
             "hello": [
-                "Hi there! 😊 I'm here to support you. How are you feeling today?",
-                "Hello! It's great that you're here. What's on your mind?",
-                "Hey! I'm glad you decided to chat. How can I help you today?"
+                "Hey there! I'm glad you're here. Want to talk about how you're feeling?",
+                "Hi! You're not alone. I'm here to support you. How's your day going?"
             ],
-            "stressed": [
-                "I hear that you're feeling stressed. That's completely valid. 🌱 What's been weighing on your mind?",
-                "Stress can be overwhelming. Let's take it one step at a time. What's causing you the most stress right now?",
-                "It sounds like you're carrying a lot right now. Remember, it's okay to take breaks. 💙"
+            "i am insecure": [
+                "You are more capable than you think. Everyone has their own pace and path.",
+                "Remember, your worth isn't defined by others. You have something special in you!"
             ],
-            "anxiety": [
-                "Anxiety can feel really intense. You're brave for reaching out. 🤗 What usually helps you feel calmer?",
-                "I understand anxiety can be frightening. Try focusing on your breathing - in for 4, hold for 4, out for 4. 🌸",
-                "Anxious feelings are valid. Remember, you've gotten through difficult times before, and you can do it again. 💪"
+            "everyone are bullying me": [
+                "I'm sorry to hear that. No one deserves to be bullied. You are strong for enduring this.",
+                "Bullying is never your fault. Talk to someone you trust and don't keep it in."
             ],
-            "depression": [
-                "Thank you for sharing this with me. Depression is real, and your feelings matter. 🤍 Have you been able to talk to someone you trust?",
-                "I'm sorry you're going through this. Please remember that you matter, and there are people who want to help. 🌟",
-                "Depression can make everything feel heavy. Small steps count - even just talking here is a positive step. 🌱"
+            "i am very stressed": [
+                "Take a deep breath. You're doing the best you can, and that's enough.",
+                "Pause, breathe, and remind yourself how far you've come. You've got this!"
             ],
-            "bullied": [
-                "I'm so sorry you're experiencing bullying. This is never your fault, and you don't deserve this treatment. 🛡️",
-                "Bullying is serious and wrong. Have you been able to talk to a trusted adult about this situation?",
-                "You're strong for enduring this, but you shouldn't have to face it alone. Please reach out to someone who can help. 💙"
+            "i have anxiety": [
+                "It's okay to feel anxious. Focus on one thing you can control right now.",
+                "Try grounding techniques — they really help bring your mind back to the present."
             ],
-            "insecure": [
-                "Those feelings of insecurity are more common than you might think. You have value exactly as you are. ✨",
-                "Everyone has moments of self-doubt. What's one thing you like about yourself?",
-                "Insecurity is often our inner critic being too harsh. Try speaking to yourself like you would a good friend. 💕"
-            ],
-            "help": [
-                "I'm here to listen and provide support. You can talk to me about stress, anxiety, depression, or anything else on your mind. 🤝",
-                "There are many ways to get help - talking to friends, family, counselors, or calling helplines. What feels most comfortable for you?",
-                "Remember, seeking help is a sign of strength, not weakness. You're taking care of yourself. 🌟"
+            "i am feeling depressed": [
+                "You are not alone. Even on dark days, your presence matters deeply.",
+                "Small steps still count. Let's just take today one moment at a time."
             ],
             "default": [
-                "I'm here to listen. What would you like to talk about?",
-                "Tell me more about what's going on. I'm here to support you. 💙",
-                "Sometimes just talking can help. What's on your mind today?"
+                "I'm here for you. Want to talk about what's bothering you?",
+                "It's okay to share. Sometimes saying it out loud makes a difference."
             ]
         }
-        
-        self.coping_strategies = [
-            "🧘 Try deep breathing exercises",
-            "🚶 Take a short walk outside",
-            "📝 Write down your thoughts",
-            "🎵 Listen to calming music",
-            "🤗 Reach out to a friend or family member",
-            "🛀 Take a warm bath or shower",
-            "📖 Read something positive",
-            "🎨 Try a creative activity"
-        ]
 
-    def get_response(self, message):
-        message_lower = message.lower()
-        
-        # Check for specific keywords
+    def respond(self, message):
+        message = message.lower()
         for key in self.responses:
-            if any(keyword in message_lower for keyword in key.split()):
-                response = random.choice(self.responses[key])
-                
-                # Add coping strategy for stress/anxiety/depression
-                if key in ["stressed", "anxiety", "depression"]:
-                    strategy = random.choice(self.coping_strategies)
-                    response += f"\n\nHere's a coping strategy you might try: {strategy}"
-                
-                return response
-        
+            if key in message:
+                return random.choice(self.responses[key])
         return random.choice(self.responses["default"])
 
-# --- Enhanced Visualization Functions ---
-def create_model_comparison_chart(performance_data):
-    """Create an interactive comparison chart for all models"""
-    try:
-        fig = make_subplots(
-            rows=2, cols=2,
-            subplot_titles=['Model Accuracy Comparison', 'Cross-Validation Scores', 'Depression Models', 'Stress & Anxiety Models'],
-            specs=[[{"colspan": 2}, None], [{"type": "bar"}, {"type": "bar"}]]
-        )
-        
-        # Overall comparison
-        models = list(performance_data['Depression'].keys())
-        depression_acc = [performance_data['Depression'][model]['accuracy'] for model in models]
-        stress_acc = [performance_data['Stress'][model]['accuracy'] for model in models]
-        anxiety_acc = [performance_data['Anxiety'][model]['accuracy'] for model in models]
-        
-        fig.add_trace(go.Bar(name='Depression', x=models, y=depression_acc), row=1, col=1)
-        fig.add_trace(go.Bar(name='Stress', x=models, y=stress_acc), row=1, col=1)
-        fig.add_trace(go.Bar(name='Anxiety', x=models, y=anxiety_acc), row=1, col=1)
-        
-        # CV scores for Depression
-        cv_means = [performance_data['Depression'][model]['cv_mean'] for model in models]
-        cv_stds = [performance_data['Depression'][model]['cv_std'] for model in models]
-        
-        fig.add_trace(go.Bar(
-            name='CV Score',
-            x=models,
-            y=cv_means,
-            error_y=dict(type='data', array=cv_stds),
-            showlegend=False
-        ), row=2, col=1)
-        
-        # Combined Stress & Anxiety
-        fig.add_trace(go.Bar(name='Stress', x=models, y=stress_acc, showlegend=False), row=2, col=2)
-        fig.add_trace(go.Bar(name='Anxiety', x=models, y=anxiety_acc, showlegend=False), row=2, col=2)
-        
-        fig.update_layout(height=800, title_text="Model Performance Analytics")
-        fig.update_yaxes(title_text="Accuracy", range=[0, 1])
-        
-        return fig
-    except Exception as e:
-        st.error(f"Error creating comparison chart: {e}")
-        return go.Figure()
+# --- Recommendations ---
+def get_recommendations(stress, anxiety, depression):
+    suggestions = []
+    severity = ["Normal", "Mild", "Moderate", "Severe", "Extremely severe"]
+    
+    # Make sure the indices are within valid range
+    stress_index = min(max(stress - 1, 0), len(severity)-1)  # Adjust by -1 since your data uses 1-5 but indices are 0-4
+    anxiety_index = min(max(anxiety - 1, 0), len(severity)-1)
+    depression_index = min(max(depression - 1, 0), len(severity)-1)
 
-# --- Enhanced Recommendations ---
-def get_enhanced_recommendations(stress, anxiety, depression, demographics=None):
-    """Provide personalized recommendations based on assessment results and demographics"""
-    recommendations = []
-    severity_labels = ["Normal", "Mild", "Moderate", "Severe", "Extremely Severe"]
-    
-    # Adjust indices for 1-based to 0-based
-    stress_level = severity_labels[min(max(stress - 1, 0), 4)]
-    anxiety_level = severity_labels[min(max(anxiety - 1, 0), 4)]
-    depression_level = severity_labels[min(max(depression - 1, 0), 4)]
-    
-    # Overall assessment
-    recommendations.append(f"**📊 Your Mental Health Assessment:**")
-    recommendations.append(f"• Stress: {stress_level}")
-    recommendations.append(f"• Anxiety: {anxiety_level}")  
-    recommendations.append(f"• Depression: {depression_level}")
-    recommendations.append("")
-    
-    # Specific recommendations based on levels
-    if stress >= 4:
-        recommendations.extend([
-            "**🚨 High Stress Level - Immediate Actions:**",
-            "• Consider speaking with a mental health professional",
-            "• Practice stress-reduction techniques daily",
-            "• Identify and address major stressors in your life",
-            "• Consider meditation or mindfulness apps like Headspace or Calm"
-        ])
-    elif stress >= 3:
-        recommendations.extend([
-            "**⚠️ Moderate Stress - Management Strategies:**",
-            "• Implement regular exercise routine",
-            "• Practice time management and prioritization",
-            "• Try progressive muscle relaxation",
-            "• Maintain work-life balance"
-        ])
-    elif stress >= 2:
-        recommendations.extend([
-            "**🌱 Mild Stress - Preventive Care:**",
-            "• Continue current coping strategies",
-            "• Build resilience through regular self-care",
-            "• Practice stress-prevention techniques"
-        ])
-    
-    if anxiety >= 4:
-        recommendations.extend([
-            "**🚨 High Anxiety Level - Seek Support:**",
-            "• Professional counseling is strongly recommended",
-            "• Consider anxiety-specific therapy (CBT)",
-            "• Practice grounding techniques (5-4-3-2-1 method)",
-            "• Limit caffeine and practice good sleep hygiene"
-        ])
-    elif anxiety >= 3:
-        recommendations.extend([
-            "**⚠️ Moderate Anxiety - Active Management:**",
-            "• Try deep breathing exercises regularly",
-            "• Challenge negative thought patterns",
-            "• Consider anxiety support groups",
-            "• Practice mindfulness meditation"
-        ])
-    
-    if depression >= 4:
-        recommendations.extend([
-            "**🚨 Severe Depression - Professional Help Needed:**",
-            "• Please reach out to a mental health professional immediately",
-            "• Contact a crisis helpline if needed",
-            "• Inform trusted friends or family about how you're feeling",
-            "• Consider both therapy and medication consultation"
-        ])
-    elif depression >= 3:
-        recommendations.extend([
-            "**⚠️ Moderate Depression - Support Systems:**",
-            "• Maintain social connections",
-            "• Engage in enjoyable activities regularly",
-            "• Consider counseling or therapy",
-            "• Practice self-compassion and patience"
-        ])
-    
-    # General wellness recommendations
-    recommendations.extend([
-        "",
-        "**🌟 General Wellness Tips:**",
-        "• Maintain regular sleep schedule (7-9 hours)",
-        "• Exercise regularly (at least 30 minutes, 3x/week)",
-        "• Eat nutritious, balanced meals",
-        "• Stay connected with supportive people",
-        "• Limit social media if it increases distress",
-        "• Practice gratitude daily"
-    ])
-    
-    # Emergency resources
-    if any(level >= 4 for level in [stress, anxiety, depression]):
-        recommendations.extend([
-            "",
-            "**🆘 Emergency Resources:**",
-            "• National Suicide Prevention Lifeline: 988",
-            "• Crisis Text Line: Text HOME to 741741",
-            "• Emergency Services: 911",
-            "• If you're in immediate danger, don't hesitate to call for help"
-        ])
-    
-    return recommendations
+    if stress >= 3:
+        suggestions.append("🌿 You might be feeling overwhelmed. Try journaling or speaking to a counselor.")
+    elif stress >= 1:
+        suggestions.append("🧘 Short breathing exercises or guided meditation can help reduce stress.")
 
-# --- Input Preprocessing ---
-def preprocess_user_input(input_data, label_encoders):
-    """Preprocess user input to match model training format"""
-    processed_data = input_data.copy()
-    
-    # Apply label encoders
-    for col, encoder in label_encoders.items():
-        if col in processed_data:
-            try:
-                processed_data[col] = encoder.transform([str(processed_data[col])])[0]
-            except ValueError:
-                # Handle unseen categories by using the most frequent category
-                processed_data[col] = encoder.transform([encoder.classes_[0]])[0]
-    
-    return processed_data
+    if anxiety >= 3:
+        suggestions.append("💬 Talking to someone you trust can help manage anxious feelings.")
+    elif anxiety >= 1:
+        suggestions.append("🎧 Soothing music or mindfulness practices before bed can calm anxiety.")
 
-# --- Main Application ---
+    if depression >= 3:
+        suggestions.append("🤍 Take small steps like a short walk or reading something uplifting.")
+    elif depression >= 1:
+        suggestions.append("📖 Writing down three things you're grateful for each day can help.")
+
+    suggestions.append(f"💡 Your assessment: Stress - {severity[stress_index]}, Anxiety - {severity[anxiety_index]}, Depression - {severity[depression_index]}")
+    suggestions.append("💪 Remember, progress takes time. You're stronger than you think.")
+    return suggestions
+
+# --- Input Data Preprocessing ---
+def preprocess_input(input_data, feature_columns):
+    # Convert to DataFrame
+    input_df = pd.DataFrame([input_data])
+    
+    # Convert categorical columns to string to match training data
+    for col in input_df.select_dtypes(include=['object']).columns:
+        input_df[col] = input_df[col].astype(str)
+    
+    # Create dummy variables
+    input_df = pd.get_dummies(input_df)
+    
+    # Handle missing columns
+    for col in feature_columns:
+        if col not in input_df.columns:
+            input_df[col] = 0
+    
+    # Keep only columns used in training
+    missing_cols = set(feature_columns) - set(input_df.columns)
+    for col in missing_cols:
+        input_df[col] = 0
+    
+    return input_df[feature_columns]
+
+# --- Main App ---
 def main():
-    st.set_page_config(
-        page_title="🧠 MindCare Pro - Advanced Mental Health Assessment",
-        page_icon="🧠",
-        layout="wide",
-        initial_sidebar_state="expanded"
-    )
+    st.set_page_config(page_title="MindCare App", layout="wide")
     
-    # Custom CSS
-    st.markdown("""
-    <style>
-    .main-header {
-        font-size: 2.5rem;
-        color: #4A90E2;
-        text-align: center;
-        margin-bottom: 2rem;
-    }
-    .metric-container {
-        background-color: #f0f2f6;
-        padding: 1rem;
-        border-radius: 10px;
-        border-left: 4px solid #4A90E2;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-    
-    # Initialize session state
-    if 'data_loaded' not in st.session_state:
-        st.session_state.data_loaded = False
-    
-    # Load data and train models
-    if not st.session_state.data_loaded:
-        try:
-            with st.spinner("🔄 Loading data and training models..."):
-                df, X, label_encoders = load_and_prepare_data()
-                y_dict = {
-                    'Depression': df['Depression'],
-                    'Stress': df['Stress'], 
-                    'Anxiety': df['Anxiety']
-                }
-                model_results, model_performance = train_models(X, y_dict)
-                
-                # Store in session state
-                st.session_state.df = df
-                st.session_state.X = X
-                st.session_state.label_encoders = label_encoders
-                st.session_state.model_results = model_results
-                st.session_state.model_performance = model_performance
-                st.session_state.data_loaded = True
-            
-            st.success("✅ Models trained successfully!")
-            
-        except Exception as e:
-            st.error(f"❌ Error loading data: {e}")
-            st.stop()
-    else:
-        # Use cached data
-        df = st.session_state.df
-        X = st.session_state.X
-        label_encoders = st.session_state.label_encoders
-        model_results = st.session_state.model_results
-        model_performance = st.session_state.model_performance
-    
-    # Initialize chatbot
-    chatbot = EnhancedMentalHealthChatbot()
-    
-    # Sidebar navigation
-    st.sidebar.title("🧠 MindCare Pro")
-    st.sidebar.markdown("---")
-    
-    page = st.sidebar.selectbox(
-        "Navigate to:",
-        ["🏠 Home", "📊 Assessment", "🤖 AI Chatbot", "📈 Model Analytics", "🆘 Emergency Resources"]
-    )
-    
-    if page == "🏠 Home":
-        st.markdown('<h1 class="main-header">🧠 MindCare Pro</h1>', unsafe_allow_html=True)
-        st.markdown('<h3 style="text-align: center; color: #666;">Advanced Mental Health Assessment & Support System</h3>', unsafe_allow_html=True)
+    try:
+        resources = load_data_and_models()
+        st.session_state["resources"] = resources
+    except FileNotFoundError:
+        st.error("ERROR: The mental_health_dataset_with_labels.csv file was not found. Please make sure it's in the same directory as this script.")
+        st.stop()
+    except Exception as e:
+        st.error(f"ERROR loading data and models: {e}")
+        st.stop()
         
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.markdown("""
-            <div class="metric-container">
-            <h4>🎯 Accurate Assessment</h4>
-            <p>Uses 3 advanced ML models for precise mental health evaluation</p>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with col2:
-            st.markdown("""
-            <div class="metric-container">
-            <h4>🤖 AI Support</h4>
-            <p>24/7 intelligent chatbot for emotional support and guidance</p>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with col3:
-            st.markdown("""
-            <div class="metric-container">
-            <h4>📊 Analytics</h4>
-            <p>Comprehensive model performance and prediction analytics</p>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        st.markdown("---")
-        
-        with st.expander("🔍 How It Works", expanded=True):
-            st.markdown("""
-            **MindCare Pro** uses advanced machine learning to assess your mental wellbeing:
-            
-            1. **📝 Complete Assessment** - Answer questions about demographics, social media use, and experiences
-            2. **🤖 AI Analysis** - 3 different ML models analyze your responses
-            3. **📊 Get Results** - Receive detailed insights about stress, anxiety, and depression levels
-            4. **💬 Chat Support** - Talk with our AI chatbot for additional support
-            5. **📈 Track Progress** - View analytics and model performance metrics
-            
-            *This tool is for informational purposes and should not replace professional medical advice.*
-            """)
-        
-        # Dataset overview
-        st.subheader("📊 Dataset Overview")
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Total Records", len(df))
-        with col2:
-            st.metric("Features", len(X.columns))
-        with col3:
-            st.metric("Avg Depression Level", f"{df['Depression'].mean():.2f}")
-        with col4:
-            try:
-                avg_accuracy = np.mean([v['Random Forest']['accuracy'] for v in model_performance.values() if 'Random Forest' in v])
-                st.metric("Model Accuracy", f"{avg_accuracy:.3f}")
-            except:
-                st.metric("Model Accuracy", "N/A")
-    
-    elif page == "📊 Assessment":
-        st.title("📊 Comprehensive Mental Health Assessment")
-        st.markdown("Please answer the following questions honestly for the most accurate assessment.")
-        
-        with st.form("mental_health_assessment"):
-            st.subheader("👤 Demographics")
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                gender = st.selectbox("Gender", ["Female", "Male", "Non-binary"])
-                age = st.selectbox("Age Group", ["<18 years old", "19-24 years old", "25-34 years old", "35-44 years old", ">45 years old"])
-                marital_status = st.selectbox("Marital Status", ["Single", "Married", "Divorced", "Widowed"])
-                
-            with col2:
-                education = st.selectbox("Education Level", ["High School", "Diploma/Foundation", "Bachelor Degree", "Master Degree", "PhD"])
-                university = st.selectbox("Institution Type", ["Public Universities", "Private Universities", "Community College"])
-                
-            st.subheader("📱 Digital Behavior")
-            col3, col4 = st.columns(2)
-            
-            with col3:
-                social_media_activity = st.selectbox("Social Media Activity Level", ["Less active", "Moderately active", "Active", "Very active"])
-                time_spent = st.selectbox("Daily Social Media Time", ["<1 hour", "1-2 hours", "3-4 hours", "5-6 hours", "7-10 hours", ">10 hours"])
-                
-            st.subheader("🛡️ Online Experiences")
-            st.markdown("*Rate your experiences on a scale of 1-10 (1 = Never/Minimal, 10 = Frequently/Severe)*")
-            
-            col5, col6 = st.columns(2)
-            with col5:
-                cyber_exp = st.slider("Overall Cyberbullying Experience", 1, 10, 3, help="General exposure to online harassment")
-                public_humiliation = st.slider("Public Humiliation Online", 1, 10, 2, help="Being embarrassed or shamed publicly online")
-                
-            with col6:
-                unwanted_contact = st.slider("Unwanted Contact", 1, 10, 2, help="Receiving unwanted messages or contact")
-                malice_exp = st.slider("Malicious Behavior Exposure", 1, 10, 2, help="Encountering deliberately harmful online behavior")
-            
-            deception_exp = st.slider("Online Deception Experience", 1, 10, 2, help="Encountering fake profiles, scams, or lies online")
-            
-            submitted = st.form_submit_button("🔍 Analyze My Mental Health", use_container_width=True)
-        
-        if submitted:
-            try:
-                with st.spinner("🧠 Analyzing your responses with AI models..."):
-                    # Prepare input data
-                    input_data = {
-                        'GENDER': gender,
-                        'AGE': age,
-                        'MARITAL_STATUS': marital_status,
-                        'EDUCATION_LEVEL': education,
-                        'UNIVERSITY_STATUS': university,
-                        'ACTIVE_SOCIAL_MEDIA': social_media_activity,
-                        'TIME_SPENT_SOCIAL_MEDIA': time_spent,
-                        'CVTOTAL': cyber_exp * 10,
-                        'CVPUBLICHUMILIATION': public_humiliation * 5,
-                        'CVMALICE': malice_exp * 5,
-                        'CVUNWANTEDCONTACT': unwanted_contact * 5,
-                        'MEANPUBLICHUMILIATION': public_humiliation,
-                        'MEANMALICE': malice_exp,
-                        'MEANDECEPTION': deception_exp,
-                        'MEANUNWANTEDCONTACT': unwanted_contact
-                    }
-                    
-                    # Preprocess input
-                    processed_input = preprocess_user_input(input_data, label_encoders)
-                    input_df = pd.DataFrame([processed_input])
-                    
-                    # Get predictions from all models
-                    predictions = {}
-                    for condition in ['Depression', 'Stress', 'Anxiety']:
-                        condition_preds = {}
-                        for model_name, model_data in model_results[condition].items():
-                            try:
-                                model = model_data['model']
-                                scaler = model_data['scaler']
-                                
-                                if scaler is not None:
-                                    input_scaled = scaler.transform(input_df)
-                                    pred = model.predict(input_scaled)[0]
-                                    prob = model.predict_proba(input_scaled)[0]
-                                else:
-                                    pred = model.predict(input_df)[0]
-                                    prob = model.predict_proba(input_df)[0]
-                                
-                                condition_preds[model_name] = {
-                                    'prediction': int(pred),
-                                    'probability': prob,
-                                    'confidence': max(prob)
-                                }
-                            except Exception as e:
-                                st.warning(f"Error with {model_name} for {condition}: {e}")
-                                continue
-                                
-                        predictions[condition] = condition_preds
-                    
-                    # Display results if we have predictions
-                    if predictions and any(predictions.values()):
-                        st.success("✅ Analysis Complete!")
-                        
-                        # Get best model predictions (highest accuracy)
-                        best_predictions = {}
-                        for condition in ['Depression', 'Stress', 'Anxiety']:
-                            if condition in model_performance and model_performance[condition]:
-                                best_model = max(model_performance[condition].keys(), 
-                                               key=lambda x: model_performance[condition][x]['accuracy'])
-                                if best_model in predictions[condition]:
-                                    best_predictions[condition] = predictions[condition][best_model]['prediction']
-                                else:
-                                    # Use first available model
-                                    first_model = list(predictions[condition].keys())[0]
-                                    best_predictions[condition] = predictions[condition][first_model]['prediction']
-                        
-                        # Main results display
-                        st.subheader("🎯 Your Mental Health Assessment Results")
-                        
-                        severity_labels = ["Normal", "Mild", "Moderate", "Severe", "Extremely Severe"]
-                        colors = ["#28a745", "#ffc107", "#fd7e14", "#dc3545", "#6f42c1"]
-                        
-                        col1, col2, col3 = st.columns(3)
-                        
-                        for i, (condition, pred) in enumerate(best_predictions.items()):
-                            severity = severity_labels[pred - 1]
-                            color = colors[pred - 1]
-                            
-                            if i == 0:
-                                col = col1
-                            elif i == 1:
-                                col = col2
-                            else:
-                                col = col3
-                            
-                            with col:
-                                st.markdown(f"""
-                                <div style="background: linear-gradient(90deg, {color}22, {color}11); 
-                                           border-left: 4px solid {color}; 
-                                           padding: 1rem; 
-                                           border-radius: 8px; 
-                                           margin: 0.5rem 0;">
-                                    <h4 style="color: {color}; margin: 0;">{condition}</h4>
-                                    <h2 style="margin: 0.5rem 0;">{severity}</h2>
-                                    <small>Level {pred}/5</small>
-                                </div>
-                                """, unsafe_allow_html=True)
-                        
-                        # Personalized recommendations
-                        st.subheader("💡 Personalized Recommendations")
-                        recommendations = get_enhanced_recommendations(
-                            best_predictions.get('Stress', 1),
-                            best_predictions.get('Anxiety', 1), 
-                            best_predictions.get('Depression', 1),
-                            demographics={'age': age, 'gender': gender}
-                        )
-                        
-                        for rec in recommendations:
-                            if rec.strip():  # Skip empty lines
-                                st.markdown(rec)
-                        
-                        # Risk assessment
-                        max_level = max(best_predictions.values()) if best_predictions else 1
-                        if max_level >= 4:
-                            st.error("⚠️ **High Risk Detected**: Your assessment indicates concerning levels. Please consider seeking professional help immediately.")
-                        elif max_level >= 3:
-                            st.warning("⚠️ **Moderate Risk**: Your results suggest you might benefit from professional support.")
-                        else:
-                            st.success("✅ **Low Risk**: Your mental health appears to be in a good range. Keep up the self-care!")
-                    else:
-                        st.error("Unable to generate predictions. Please try again.")
-                        
-            except Exception as e:
-                st.error(f"Error during assessment: {e}")
-    
-    elif page == "🤖 AI Chatbot":
-        st.title("🤖 MindCare AI Assistant")
-        st.markdown("I'm here to listen and provide support. Feel free to share what's on your mind.")
-        
-        # Initialize chat history
-        if "messages" not in st.session_state:
-            st.session_state.messages = [
-                {"role": "assistant", "content": "Hello! I'm your MindCare AI assistant. 😊 I'm here to provide emotional support and listen to whatever you'd like to share. How are you feeling today?"}
-            ]
-        
-        # Display chat history
-        for message in st.session_state.messages:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
-        
-        # Chat input
-        if prompt := st.chat_input("Type your message here..."):
-            # Add user message
-            st.session_state.messages.append({"role": "user", "content": prompt})
-            with st.chat_message("user"):
-                st.markdown(prompt)
-            
-            # Generate and display assistant response
-            with st.chat_message("assistant"):
-                with st.spinner("Thinking..."):
-                    response = chatbot.get_response(prompt)
-                st.markdown(response)
-            
-            st.session_state.messages.append({"role": "assistant", "content": response})
-        
-        # Sidebar with helpful information
-        with st.sidebar:
-            st.markdown("### 💡 Chat Tips")
-            st.markdown("""
-            - Be honest about your feelings
-            - Take your time to express yourself
-            - Ask for coping strategies
-            - Discuss specific concerns
-            - Request resources or support
-            """)
-            
-            st.markdown("### 🆘 Quick Help")
-            if st.button("I'm feeling stressed"):
-                st.session_state.messages.append({"role": "user", "content": "I'm feeling very stressed"})
-                st.rerun()
-            
-            if st.button("I have anxiety"):
-                st.session_state.messages.append({"role": "user", "content": "I'm experiencing anxiety"})
-                st.rerun()
-                
-            if st.button("I feel sad"):
-                st.session_state.messages.append({"role": "user", "content": "I'm feeling really sad and down"})
-                st.rerun()
-            
-            if st.button("Clear Chat"):
-                st.session_state.messages = [
-                    {"role": "assistant", "content": "Hello! I'm your MindCare AI assistant. 😊 How can I help you today?"}
-                ]
-                st.rerun()
-    
-    elif page == "📈 Model Analytics":
-        st.title("📈 Model Performance Analytics")
-        st.markdown("Comprehensive analysis of all machine learning models used in the assessment.")
-        
-        try:
-            # Overall performance metrics
-            st.subheader("🎯 Model Performance Overview")
-            
-            # Create performance summary
-            performance_summary = []
-            for condition in ['Depression', 'Stress', 'Anxiety']:
-                for model_name, metrics in model_performance[condition].items():
-                    performance_summary.append({
-                        'Condition': condition,
-                        'Model': model_name,
-                        'Accuracy': metrics['accuracy'],
-                        'CV Mean': metrics['cv_mean'],
-                        'CV Std': metrics['cv_std']
-                    })
-            
-            if performance_summary:
-                summary_df = pd.DataFrame(performance_summary)
-                
-                # Display metrics table
-                pivot_df = summary_df.pivot(index='Model', columns='Condition', values='Accuracy')
-                st.dataframe(pivot_df.round(4), use_container_width=True)
-                
-                # Model comparison visualization
-                st.subheader("📊 Interactive Model Comparison")
-                comparison_chart = create_model_comparison_chart(model_performance)
-                st.plotly_chart(comparison_chart, use_container_width=True)
-                
-                # Best models summary
-                st.subheader("🏆 Best Performing Models")
-                col1, col2, col3 = st.columns(3)
-                
-                for i, condition in enumerate(['Depression', 'Stress', 'Anxiety']):
-                    if condition in model_performance and model_performance[condition]:
-                        best_model = max(model_performance[condition].keys(), 
-                                       key=lambda x: model_performance[condition][x]['accuracy'])
-                        best_accuracy = model_performance[condition][best_model]['accuracy']
-                        
-                        if i == 0:
-                            col = col1
-                        elif i == 1:
-                            col = col2
-                        else:
-                            col = col3
-                        
-                        with col:
-                            st.metric(
-                                f"Best {condition} Model",
-                                best_model,
-                                f"{best_accuracy:.4f} accuracy"
-                            )
-                
-                # Detailed model analysis
-                st.subheader("🔍 Detailed Model Analysis")
-                
-                selected_condition = st.selectbox("Select Condition for Detailed Analysis:", 
-                                                ['Depression', 'Stress', 'Anxiety'])
-                
-                if selected_condition in model_performance and model_performance[selected_condition]:
-                    # Cross-validation scores visualization
-                    cv_data = []
-                    for model_name, metrics in model_performance[selected_condition].items():
-                        cv_data.append({
-                            'Model': model_name,
-                            'CV Mean': metrics['cv_mean'],
-                            'CV Std': metrics['cv_std']
-                        })
-                    
-                    cv_df = pd.DataFrame(cv_data)
-                    
-                    fig = go.Figure()
-                    fig.add_trace(go.Bar(
-                        x=cv_df['Model'],
-                        y=cv_df['CV Mean'],
-                        error_y=dict(type='data', array=cv_df['CV Std']),
-                        name='Cross-Validation Score'
-                    ))
-                    
-                    fig.update_layout(
-                        title=f'{selected_condition} Model Cross-Validation Scores',
-                        xaxis_title='Model',
-                        yaxis_title='Accuracy Score',
-                        height=400
-                    )
-                    
-                    st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.warning("No performance data available")
-                
-        except Exception as e:
-            st.error(f"Error displaying analytics: {e}")
-        
-        # Model interpretability
-        with st.expander("🧠 Model Interpretability & Features"):
-            st.markdown("""
-            **Key Features Contributing to Predictions:**
-            
-            1. **Cyberbullying Experiences** - Direct correlation with mental health outcomes
-            2. **Social Media Usage** - Both time spent and activity level impact wellbeing  
-            3. **Demographics** - Age and gender influence vulnerability patterns
-            4. **Educational Status** - Correlates with coping mechanisms and resources
-            5. **Online Harassment Metrics** - Various forms of digital mistreatment
-            
-            **Model Strengths:**
-            - **Random Forest**: Best overall performance, handles feature interactions well
-            - **Gradient Boosting**: Strong at capturing non-linear relationships  
-            - **Logistic Regression**: Provides interpretable coefficients
-            """)
-        
-        # Dataset insights
-        st.subheader("📊 Dataset Insights")
-        
-        try:
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                # Distribution of mental health conditions
-                condition_counts = {}
-                for condition in ['Depression', 'Stress', 'Anxiety']:
-                    counts = df[condition].value_counts().sort_index()
-                    condition_counts[condition] = counts
-                
-                fig = go.Figure()
-                for condition, counts in condition_counts.items():
-                    fig.add_trace(go.Bar(
-                        x=[f"Level {i}" for i in counts.index],
-                        y=counts.values,
-                        name=condition
-                    ))
-                
-                fig.update_layout(
-                    title='Distribution of Mental Health Conditions',
-                    xaxis_title='Severity Level',
-                    yaxis_title='Count',
-                    height=400
-                )
-                st.plotly_chart(fig, use_container_width=True)
-            
-            with col2:
-                # Correlation heatmap
-                numeric_cols = df.select_dtypes(include=[np.number]).columns
-                corr_matrix = df[numeric_cols].corr()
-                
-                fig = px.imshow(
-                    corr_matrix,
-                    title='Feature Correlation Matrix',
-                    color_continuous_scale='RdBu_r',
-                    height=400
-                )
-                st.plotly_chart(fig, use_container_width=True)
-                
-        except Exception as e:
-            st.error(f"Error creating visualizations: {e}")
-        
-        # Model deployment info
-        with st.expander("🚀 Model Deployment Information"):
-            st.markdown(f"""
-            **Training Dataset**: {len(df):,} samples with {len(X.columns)} features
-            
-            **Model Training Details**:
-            - **Random Forest**: 50 trees, max depth 8
-            - **Gradient Boosting**: 50 estimators, max depth 5  
-            - **Logistic Regression**: L2 regularization, max iter 500
-            
-            **Data Preprocessing**:
-            - Label encoding for categorical variables
-            - Standard scaling for Logistic Regression
-            - 80/20 train-test split with stratification
-            - 3-fold cross-validation for model evaluation
-            
-            **Last Updated**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-            """)
-    
-    elif page == "🆘 Emergency Resources":
-        st.title("🆘 Emergency Mental Health Resources")
-        
-        st.error("**⚠️ If you are in immediate danger or having thoughts of self-harm, please contact emergency services immediately.**")
-        
-        # Crisis hotlines
-        st.subheader("📞 Crisis Hotlines (24/7)")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("""
-            **🇺🇸 United States:**
-            - **988 Suicide & Crisis Lifeline**: 988
-            - **Crisis Text Line**: Text HOME to 741741
-            - **National Suicide Prevention Lifeline**: 1-800-273-8255
-            - **SAMHSA National Helpline**: 1-800-662-4357
-            
-            **🇬🇧 United Kingdom:**
-            - **Samaritans**: 116 123
-            - **Crisis Text Line UK**: Text SHOUT to 85258
-            - **NHS 111**: 111
-            """)
-        
-        with col2:
-            st.markdown("""
-            **🇮🇳 India:**
-            - **iCall (TISS)**: +91 9152987821
-            - **AASRA**: 91-22-27546669
-            - **Vandrevala Foundation**: 1860 266 2345
-            - **Sneha Foundation**: +91-44-24640050
-            
-            **🇨🇦 Canada:**
-            - **Canada Suicide Prevention Service**: 1-833-456-4566
-            - **Kids Help Phone**: 1-800-668-6868
-            - **Crisis Services Canada**: 1-833-456-4566
-            """)
-        
-        # Online resources
-        st.subheader("🌐 Online Mental Health Resources")
-        
-        resources_data = [
-            {"Platform": "BetterHelp", "Type": "Online Therapy", "Description": "Professional counseling via video, phone, or text"},
-            {"Platform": "Talkspace", "Type": "Online Therapy", "Description": "Text-based therapy with licensed professionals"},
-            {"Platform": "7 Cups", "Type": "Peer Support", "Description": "Free emotional support from trained listeners"},
-            {"Platform": "NAMI", "Type": "Education & Support", "Description": "Mental health awareness and support groups"},
-            {"Platform": "Mental Health America", "Type": "Resources", "Description": "Screening tools and mental health information"},
-            {"Platform": "Crisis Text Line", "Type": "Crisis Support", "Description": "24/7 text-based crisis counseling"}
-        ]
-        
-        resources_df = pd.DataFrame(resources_data)
-        st.dataframe(resources_df, use_container_width=True)
-        
-        # Self-help strategies
-        st.subheader("🛠️ Immediate Self-Help Strategies")
-        
-        tab1, tab2, tab3 = st.tabs(["🧘 Anxiety", "😔 Depression", "😰 Stress"])
-        
-        with tab1:
-            st.markdown("""
-            **For Anxiety:**
-            - **5-4-3-2-1 Grounding**: Name 5 things you see, 4 you can touch, 3 you hear, 2 you smell, 1 you taste
-            - **Deep Breathing**: Breathe in for 4 counts, hold for 4, exhale for 6
-            - **Progressive Muscle Relaxation**: Tense and release each muscle group
-            - **Mindfulness Apps**: Headspace, Calm, Insight Timer
-            - **Avoid Caffeine**: Can worsen anxiety symptoms
-            """)
-        
-        with tab2:
-            st.markdown("""
-            **For Depression:**
-            - **Small Steps**: Set tiny, achievable daily goals
-            - **Sunlight Exposure**: Spend time outdoors when possible
-            - **Physical Activity**: Even a 5-minute walk can help
-            - **Social Connection**: Reach out to one person today
-            - **Routine**: Maintain regular sleep and meal schedules
-            """)
-        
-        with tab3:
-            st.markdown("""
-            **For Stress:**
-            - **Time Management**: Break large tasks into smaller ones
-            - **Prioritization**: Focus on what's most important
-            - **Boundary Setting**: Learn to say no when needed
-            - **Physical Release**: Exercise, stretching, or dancing
-            - **Relaxation Techniques**: Meditation, yoga, or warm baths
-            """)
-        
-        # Warning signs
-        st.subheader("⚠️ Warning Signs - Seek Immediate Help")
-        
-        st.warning("""
-        **Contact emergency services (911/999/112) or go to the nearest emergency room if you experience:**
-        
-        - Thoughts of harming yourself or others
-        - Detailed plans for suicide
-        - Hearing voices or seeing things others don't
-        - Severe confusion or inability to think clearly
-        - Extreme agitation or violent behavior
-        - Inability to care for yourself
-        - Substance abuse emergency
-        """)
-        
-        # Professional help guidance
-        st.subheader("👩‍⚕️ When to Seek Professional Help")
-        
-        st.info("""
-        **Consider professional help if you experience:**
-        
-        - Persistent sadness or hopelessness for more than 2 weeks
-        - Significant changes in sleep, appetite, or energy
-        - Difficulty concentrating or making decisions
-        - Loss of interest in activities you used to enjoy
-        - Persistent anxiety or panic attacks
-        - Relationship or work problems due to mental health
-        - Using alcohol or drugs to cope
-        - Family or friends expressing concern about your wellbeing
-        """)
+    chatbot = MentalHealthChatbot()
 
+    st.sidebar.title("Navigation")
+    page = st.sidebar.radio("Go to", ["Home", "Mental Health Assessment", "Chatbot", "Emergency Resources"])
+
+    if page == "Home":
+        st.title("🧠 MindCare: Your Mental Health Companion")
+        st.subheader("We help assess your mental wellbeing based on your experiences")
+        st.markdown("""
+        This tool helps evaluate your mental health status based on various life factors and experiences.
+        By answering questions about your demographics, social media use, and experiences,
+        we can provide insights into your stress, anxiety, and depression levels.
+        """)
+        with st.expander("How it works"):
+            st.write("""
+            1. Go to **Mental Health Assessment**  
+            2. Answer a few simple questions  
+            3. Get personalized mental health insights  
+            4. Chat with our emotional assistant 🤖  
+            """)
+
+    elif page == "Mental Health Assessment":
+        st.title("📝 Mental Health Assessment")
+        with st.form("form"):
+            col1, col2 = st.columns(2)
+            with col1:
+                gender = st.selectbox("Gender", ["Female", "Male"])
+                age = st.selectbox("Age", ["<18 years old", "19-24 years old", ">25 years old"])
+                marital_status = st.selectbox("Marital Status", ["Single", "Married"])
+            with col2:
+                education = st.selectbox("Education Level", ["Diploma/Foundation", "Bachelor Degree", "Postgraduate studies"])
+                university = st.selectbox("University Type", ["Private Universities", "Public Universities"])
+                social_media = st.selectbox("Social Media Activity", ["Less active", "Active", "Very active"])
+                social_media_time = st.selectbox("Time Spent on Social Media", ["1-2 hours", "3-6 hours", "7-10 hours", "> 11 hours", "Whole day"])
+            cyber_exp = st.slider("Cyberbullying Experience (1-10)", 1, 10, 3)
+            public_humiliation = st.slider("Public Humiliation (1-10)", 1, 10, 2)
+            unwanted_contact = st.slider("Unwanted Contact (1-10)", 1, 10, 2)
+            submit = st.form_submit_button("Get My Report")
+
+        if submit:
+            try:
+                # Create input data dictionary matching your dataset structure
+                input_data = {
+                    'GENDER': gender, 
+                    'AGE': age, 
+                    'MARITAL_STATUS': marital_status,
+                    'EDUCATION_LEVEL': education, 
+                    'UNIVERSITY_STATUS': university,
+                    'ACTIVE_SOCIAL_MEDIA': social_media, 
+                    'TIME_SPENT_SOCIAL_MEDIA': social_media_time,
+                    'CVTOTAL': cyber_exp * 10, 
+                    'CVPUBLICHUMILIATION': public_humiliation * 5,
+                    'CVMALICE': cyber_exp * 5, 
+                    'CVUNWANTEDCONTACT': unwanted_contact * 5,
+                    'MEANPUBLICHUMILIATION': public_humiliation,
+                    'MEANMALICE': cyber_exp, 
+                    'MEANDECEPTION': cyber_exp,
+                    'MEANUNWANTEDCONTACT': unwanted_contact
+                }
+
+                # Preprocess input
+                input_df = preprocess_input(input_data, resources['feature_columns'])
+                
+                # Add error handling for predictions
+                try:
+                    # Get predictions
+                    stress_pred = resources['stress_model'].predict(input_df)[0]
+                    anxiety_pred = resources['anxiety_model'].predict(input_df)[0]
+                    depression_pred = resources['depression_model'].predict(input_df)[0]
+                    
+                    # Convert to integers if needed
+                    stress = int(stress_pred)
+                    anxiety = int(anxiety_pred)
+                    depression = int(depression_pred)
+                    
+                    # Show the predicted levels
+                    severity = ["Normal", "Mild", "Moderate", "Severe", "Extremely severe"]
+                    stress_index = min(max(stress - 1, 0), len(severity)-1)  # Adjust for 1-based indices
+                    anxiety_index = min(max(anxiety - 1, 0), len(severity)-1)
+                    depression_index = min(max(depression - 1, 0), len(severity)-1)
+                    
+                    col1, col2, col3 = st.columns(3)
+                    col1.metric("Stress Level", severity[stress_index])
+                    col2.metric("Anxiety Level", severity[anxiety_index])
+                    col3.metric("Depression Level", severity[depression_index])
+
+                    # Show bar chart
+                    chart_data = pd.DataFrame({
+                        "Category": ["Stress", "Anxiety", "Depression"],
+                        "Level": [stress, anxiety, depression]
+                    }).set_index("Category")
+                    st.bar_chart(chart_data)
+
+                    # Show recommendations
+                    st.subheader("🌱 Recommendations")
+                    for rec in get_recommendations(stress, anxiety, depression):
+                        st.write(f"- {rec}")
+                    
+                    # Show the raw prediction values for debugging
+                    with st.expander("Debug Information"):
+                        st.write(f"Raw predictions: Stress={stress_pred}, Anxiety={anxiety_pred}, Depression={depression_pred}")
+                    
+                except (IndexError, ValueError) as e:
+                    st.error(f"Error with model predictions: {e}")
+                    st.write("Debug info:")
+                    st.write(f"Raw predictions: Stress={resources['stress_model'].predict(input_df)[0]}, " 
+                             f"Anxiety={resources['anxiety_model'].predict(input_df)[0]}, "
+                             f"Depression={resources['depression_model'].predict(input_df)[0]}")
+                    st.write(f"Expected value ranges: Depression={resources['depression_values']}, " 
+                             f"Anxiety={resources['anxiety_values']}, Stress={resources['stress_values']}")
+            
+            except Exception as e:
+                st.error(f"An error occurred: {e}. Please ensure your dataset structure matches the expected format.")
+                st.error("If this is your first time running the app, please check if the dataset file exists.")
+
+    elif page == "Chatbot":
+        st.title("💬 Chat with MindCare Bot")
+        if "messages" not in st.session_state:
+            st.session_state.messages = []
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": "Hi there! I'm here to listen and support you. How are you feeling today?"
+            })
+
+        for msg in st.session_state.messages:
+            with st.chat_message(msg["role"]):
+                st.write(msg["content"])
+
+        user_input = st.chat_input("Type your message...")
+        if user_input:
+            st.session_state.messages.append({"role": "user", "content": user_input})
+            reply = chatbot.respond(user_input)
+            st.session_state.messages.append({"role": "assistant", "content": reply})
+            st.chat_message("user").write(user_input)
+            st.chat_message("assistant").write(reply)
+
+    elif page == "Emergency Resources":
+        st.title("🚨 Emergency Mental Health Resources")
+        st.markdown("""
+        - **National Helpline**: 9152987821  
+        - **iCall (TISS)**: +91 9152987821 | Email: icall@tiss.edu  
+        - **AASRA Helpline**: 91-22-27546669 / 27546667  
+        - **Vandrevala Foundation**: 1860 266 2345 / 1800 233 3330  
+        """)
+        st.info("If you're in immediate danger, contact emergency services or a trusted adult.")
+
+# --- Run the app ---
 if __name__ == "__main__":
     main()
+
+
 
 
 
