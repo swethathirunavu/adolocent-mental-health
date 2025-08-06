@@ -23,7 +23,7 @@ warnings.filterwarnings('ignore')
 def generate_synthetic_data():
     """Generate a comprehensive synthetic mental health dataset"""
     np.random.seed(42)
-    n_samples = 5000
+    n_samples = 2000  # Reduced for faster processing
     
     # Demographics
     genders = ['Male', 'Female', 'Non-binary']
@@ -107,17 +107,9 @@ def generate_synthetic_data():
 def load_and_prepare_data():
     """Load or generate data and prepare it for modeling"""
     
-    # Try to load existing dataset first
-    if os.path.exists("mental_health_dataset_with_labels.csv"):
-        try:
-            df = pd.read_csv("mental_health_dataset_with_labels.csv")
-            st.info("✅ Loaded existing dataset")
-        except:
-            df = generate_synthetic_data()
-            st.info("🔄 Generated synthetic dataset (original file corrupted)")
-    else:
-        df = generate_synthetic_data()
-        st.info("🔄 Generated synthetic dataset (no existing file found)")
+    # Generate synthetic data
+    df = generate_synthetic_data()
+    st.info("🔄 Generated synthetic dataset")
     
     # Clean the data
     df = df.dropna()
@@ -140,10 +132,9 @@ def train_models(X, y_dict):
     """Train multiple models and return their performance metrics"""
     
     models = {
-        'Random Forest': RandomForestClassifier(n_estimators=100, random_state=42, max_depth=10),
-        'Gradient Boosting': GradientBoostingClassifier(random_state=42, max_depth=6),
-        'Logistic Regression': LogisticRegression(random_state=42, max_iter=1000),
-        'Support Vector Machine': SVC(random_state=42, probability=True, kernel='rbf')
+        'Random Forest': RandomForestClassifier(n_estimators=50, random_state=42, max_depth=8),
+        'Gradient Boosting': GradientBoostingClassifier(random_state=42, max_depth=5, n_estimators=50),
+        'Logistic Regression': LogisticRegression(random_state=42, max_iter=500),
     }
     
     results = {}
@@ -153,7 +144,7 @@ def train_models(X, y_dict):
         y = y_dict[target]
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
         
-        # Scale features for SVM and Logistic Regression
+        # Scale features for Logistic Regression
         scaler = StandardScaler()
         X_train_scaled = scaler.fit_transform(X_train)
         X_test_scaled = scaler.transform(X_test)
@@ -162,36 +153,41 @@ def train_models(X, y_dict):
         target_performance = {}
         
         for name, model in models.items():
-            # Use scaled data for SVM and Logistic Regression
-            if name in ['Support Vector Machine', 'Logistic Regression']:
-                model.fit(X_train_scaled, y_train)
-                y_pred = model.predict(X_test_scaled)
-                y_prob = model.predict_proba(X_test_scaled)
-            else:
-                model.fit(X_train, y_train)
-                y_pred = model.predict(X_test)
-                y_prob = model.predict_proba(X_test)
-            
-            # Calculate metrics
-            accuracy = accuracy_score(y_test, y_pred)
-            cv_scores = cross_val_score(model, X_train_scaled if name in ['Support Vector Machine', 'Logistic Regression'] else X_train, y_train, cv=5)
-            
-            target_results[name] = {
-                'model': model,
-                'scaler': scaler if name in ['Support Vector Machine', 'Logistic Regression'] else None,
-                'accuracy': accuracy,
-                'cv_mean': cv_scores.mean(),
-                'cv_std': cv_scores.std(),
-                'predictions': y_pred,
-                'probabilities': y_prob,
-                'actual': y_test
-            }
-            
-            target_performance[name] = {
-                'accuracy': accuracy,
-                'cv_mean': cv_scores.mean(),
-                'cv_std': cv_scores.std()
-            }
+            try:
+                # Use scaled data for Logistic Regression
+                if name == 'Logistic Regression':
+                    model.fit(X_train_scaled, y_train)
+                    y_pred = model.predict(X_test_scaled)
+                    y_prob = model.predict_proba(X_test_scaled)
+                else:
+                    model.fit(X_train, y_train)
+                    y_pred = model.predict(X_test)
+                    y_prob = model.predict_proba(X_test)
+                
+                # Calculate metrics
+                accuracy = accuracy_score(y_test, y_pred)
+                cv_scores = cross_val_score(model, X_train_scaled if name == 'Logistic Regression' else X_train, y_train, cv=3)
+                
+                target_results[name] = {
+                    'model': model,
+                    'scaler': scaler if name == 'Logistic Regression' else None,
+                    'accuracy': accuracy,
+                    'cv_mean': cv_scores.mean(),
+                    'cv_std': cv_scores.std(),
+                    'predictions': y_pred,
+                    'probabilities': y_prob,
+                    'actual': y_test
+                }
+                
+                target_performance[name] = {
+                    'accuracy': accuracy,
+                    'cv_mean': cv_scores.mean(),
+                    'cv_std': cv_scores.std()
+                }
+                
+            except Exception as e:
+                st.error(f"Error training {name} for {target}: {e}")
+                continue
         
         results[target] = target_results
         model_performance[target] = target_performance
@@ -275,70 +271,46 @@ class EnhancedMentalHealthChatbot:
 # --- Enhanced Visualization Functions ---
 def create_model_comparison_chart(performance_data):
     """Create an interactive comparison chart for all models"""
-    fig = make_subplots(
-        rows=2, cols=2,
-        subplot_titles=['Model Accuracy Comparison', 'Cross-Validation Scores', 'Depression Models', 'Stress & Anxiety Models'],
-        specs=[[{"colspan": 2}, None], [{"type": "bar"}, {"type": "bar"}]]
-    )
-    
-    # Overall comparison
-    models = list(performance_data['Depression'].keys())
-    depression_acc = [performance_data['Depression'][model]['accuracy'] for model in models]
-    stress_acc = [performance_data['Stress'][model]['accuracy'] for model in models]
-    anxiety_acc = [performance_data['Anxiety'][model]['accuracy'] for model in models]
-    
-    fig.add_trace(go.Bar(name='Depression', x=models, y=depression_acc), row=1, col=1)
-    fig.add_trace(go.Bar(name='Stress', x=models, y=stress_acc), row=1, col=1)
-    fig.add_trace(go.Bar(name='Anxiety', x=models, y=anxiety_acc), row=1, col=1)
-    
-    # CV scores for Depression
-    cv_means = [performance_data['Depression'][model]['cv_mean'] for model in models]
-    cv_stds = [performance_data['Depression'][model]['cv_std'] for model in models]
-    
-    fig.add_trace(go.Bar(
-        name='CV Score',
-        x=models,
-        y=cv_means,
-        error_y=dict(type='data', array=cv_stds),
-        showlegend=False
-    ), row=2, col=1)
-    
-    # Combined Stress & Anxiety
-    fig.add_trace(go.Bar(name='Stress', x=models, y=stress_acc, showlegend=False), row=2, col=2)
-    fig.add_trace(go.Bar(name='Anxiety', x=models, y=anxiety_acc, showlegend=False), row=2, col=2)
-    
-    fig.update_layout(height=800, title_text="Model Performance Analytics")
-    fig.update_yaxes(title_text="Accuracy", range=[0, 1])
-    
-    return fig
-
-def create_prediction_distribution(predictions_dict):
-    """Create distribution plots for predictions"""
-    fig = make_subplots(
-        rows=1, cols=3,
-        subplot_titles=['Depression Distribution', 'Stress Distribution', 'Anxiety Distribution']
-    )
-    
-    severity_labels = ['Normal', 'Mild', 'Moderate', 'Severe', 'Extremely Severe']
-    
-    for i, (condition, pred_data) in enumerate(predictions_dict.items(), 1):
-        # Get the best model's predictions
-        best_model = max(pred_data.keys(), key=lambda x: pred_data[x]['accuracy'])
-        predictions = pred_data[best_model]['predictions']
+    try:
+        fig = make_subplots(
+            rows=2, cols=2,
+            subplot_titles=['Model Accuracy Comparison', 'Cross-Validation Scores', 'Depression Models', 'Stress & Anxiety Models'],
+            specs=[[{"colspan": 2}, None], [{"type": "bar"}, {"type": "bar"}]]
+        )
         
-        # Count distribution
-        unique, counts = np.unique(predictions, return_counts=True)
-        labels = [severity_labels[int(val)-1] for val in unique]
+        # Overall comparison
+        models = list(performance_data['Depression'].keys())
+        depression_acc = [performance_data['Depression'][model]['accuracy'] for model in models]
+        stress_acc = [performance_data['Stress'][model]['accuracy'] for model in models]
+        anxiety_acc = [performance_data['Anxiety'][model]['accuracy'] for model in models]
+        
+        fig.add_trace(go.Bar(name='Depression', x=models, y=depression_acc), row=1, col=1)
+        fig.add_trace(go.Bar(name='Stress', x=models, y=stress_acc), row=1, col=1)
+        fig.add_trace(go.Bar(name='Anxiety', x=models, y=anxiety_acc), row=1, col=1)
+        
+        # CV scores for Depression
+        cv_means = [performance_data['Depression'][model]['cv_mean'] for model in models]
+        cv_stds = [performance_data['Depression'][model]['cv_std'] for model in models]
         
         fig.add_trace(go.Bar(
-            x=labels,
-            y=counts,
-            name=condition,
+            name='CV Score',
+            x=models,
+            y=cv_means,
+            error_y=dict(type='data', array=cv_stds),
             showlegend=False
-        ), row=1, col=i)
-    
-    fig.update_layout(height=400, title_text="Prediction Distributions (Best Models)")
-    return fig
+        ), row=2, col=1)
+        
+        # Combined Stress & Anxiety
+        fig.add_trace(go.Bar(name='Stress', x=models, y=stress_acc, showlegend=False), row=2, col=2)
+        fig.add_trace(go.Bar(name='Anxiety', x=models, y=anxiety_acc, showlegend=False), row=2, col=2)
+        
+        fig.update_layout(height=800, title_text="Model Performance Analytics")
+        fig.update_yaxes(title_text="Accuracy", range=[0, 1])
+        
+        return fig
+    except Exception as e:
+        st.error(f"Error creating comparison chart: {e}")
+        return go.Figure()
 
 # --- Enhanced Recommendations ---
 def get_enhanced_recommendations(stress, anxiety, depression, demographics=None):
@@ -485,22 +457,42 @@ def main():
     </style>
     """, unsafe_allow_html=True)
     
+    # Initialize session state
+    if 'data_loaded' not in st.session_state:
+        st.session_state.data_loaded = False
+    
     # Load data and train models
-    try:
-        with st.spinner("🔄 Loading data and training models..."):
-            df, X, label_encoders = load_and_prepare_data()
-            y_dict = {
-                'Depression': df['Depression'],
-                'Stress': df['Stress'], 
-                'Anxiety': df['Anxiety']
-            }
-            model_results, model_performance = train_models(X, y_dict)
-        
-        st.success("✅ Models trained successfully!")
-        
-    except Exception as e:
-        st.error(f"❌ Error loading data: {e}")
-        st.stop()
+    if not st.session_state.data_loaded:
+        try:
+            with st.spinner("🔄 Loading data and training models..."):
+                df, X, label_encoders = load_and_prepare_data()
+                y_dict = {
+                    'Depression': df['Depression'],
+                    'Stress': df['Stress'], 
+                    'Anxiety': df['Anxiety']
+                }
+                model_results, model_performance = train_models(X, y_dict)
+                
+                # Store in session state
+                st.session_state.df = df
+                st.session_state.X = X
+                st.session_state.label_encoders = label_encoders
+                st.session_state.model_results = model_results
+                st.session_state.model_performance = model_performance
+                st.session_state.data_loaded = True
+            
+            st.success("✅ Models trained successfully!")
+            
+        except Exception as e:
+            st.error(f"❌ Error loading data: {e}")
+            st.stop()
+    else:
+        # Use cached data
+        df = st.session_state.df
+        X = st.session_state.X
+        label_encoders = st.session_state.label_encoders
+        model_results = st.session_state.model_results
+        model_performance = st.session_state.model_performance
     
     # Initialize chatbot
     chatbot = EnhancedMentalHealthChatbot()
@@ -524,7 +516,7 @@ def main():
             st.markdown("""
             <div class="metric-container">
             <h4>🎯 Accurate Assessment</h4>
-            <p>Uses 4 advanced ML models for precise mental health evaluation</p>
+            <p>Uses 3 advanced ML models for precise mental health evaluation</p>
             </div>
             """, unsafe_allow_html=True)
         
@@ -551,7 +543,7 @@ def main():
             **MindCare Pro** uses advanced machine learning to assess your mental wellbeing:
             
             1. **📝 Complete Assessment** - Answer questions about demographics, social media use, and experiences
-            2. **🤖 AI Analysis** - 4 different ML models analyze your responses
+            2. **🤖 AI Analysis** - 3 different ML models analyze your responses
             3. **📊 Get Results** - Receive detailed insights about stress, anxiety, and depression levels
             4. **💬 Chat Support** - Talk with our AI chatbot for additional support
             5. **📈 Track Progress** - View analytics and model performance metrics
@@ -569,7 +561,11 @@ def main():
         with col3:
             st.metric("Avg Depression Level", f"{df['Depression'].mean():.2f}")
         with col4:
-            st.metric("Model Accuracy", f"{np.mean([v['Random Forest']['accuracy'] for v in model_performance.values()]):.3f}")
+            try:
+                avg_accuracy = np.mean([v['Random Forest']['accuracy'] for v in model_performance.values() if 'Random Forest' in v])
+                st.metric("Model Accuracy", f"{avg_accuracy:.3f}")
+            except:
+                st.metric("Model Accuracy", "N/A")
     
     elif page == "📊 Assessment":
         st.title("📊 Comprehensive Mental Health Assessment")
@@ -612,159 +608,134 @@ def main():
             submitted = st.form_submit_button("🔍 Analyze My Mental Health", use_container_width=True)
         
         if submitted:
-            with st.spinner("🧠 Analyzing your responses with AI models..."):
-                # Prepare input data
-                input_data = {
-                    'GENDER': gender,
-                    'AGE': age,
-                    'MARITAL_STATUS': marital_status,
-                    'EDUCATION_LEVEL': education,
-                    'UNIVERSITY_STATUS': university,
-                    'ACTIVE_SOCIAL_MEDIA': social_media_activity,
-                    'TIME_SPENT_SOCIAL_MEDIA': time_spent,
-                    'CVTOTAL': cyber_exp * 10,
-                    'CVPUBLICHUMILIATION': public_humiliation * 5,
-                    'CVMALICE': malice_exp * 5,
-                    'CVUNWANTEDCONTACT': unwanted_contact * 5,
-                    'MEANPUBLICHUMILIATION': public_humiliation,
-                    'MEANMALICE': malice_exp,
-                    'MEANDECEPTION': deception_exp,
-                    'MEANUNWANTEDCONTACT': unwanted_contact
-                }
-                
-                # Preprocess input
-                processed_input = preprocess_user_input(input_data, label_encoders)
-                input_df = pd.DataFrame([processed_input])
-                
-                # Get predictions from all models
-                predictions = {}
-                for condition in ['Depression', 'Stress', 'Anxiety']:
-                    condition_preds = {}
-                    for model_name, model_data in model_results[condition].items():
-                        model = model_data['model']
-                        scaler = model_data['scaler']
-                        
-                        if scaler is not None:
-                            input_scaled = scaler.transform(input_df)
-                            pred = model.predict(input_scaled)[0]
-                            prob = model.predict_proba(input_scaled)[0]
-                        else:
-                            pred = model.predict(input_df)[0]
-                            prob = model.predict_proba(input_df)[0]
-                        
-                        condition_preds[model_name] = {
-                            'prediction': int(pred),
-                            'probability': prob,
-                            'confidence': max(prob)
-                        }
-                    predictions[condition] = condition_preds
-                
-                # Display results
-                st.success("✅ Analysis Complete!")
-                
-                # Get best model predictions (highest accuracy)
-                best_predictions = {}
-                for condition in ['Depression', 'Stress', 'Anxiety']:
-                    best_model = max(model_performance[condition].keys(), 
-                                   key=lambda x: model_performance[condition][x]['accuracy'])
-                    best_predictions[condition] = predictions[condition][best_model]['prediction']
-                
-                # Main results display
-                st.subheader("🎯 Your Mental Health Assessment Results")
-                
-                severity_labels = ["Normal", "Mild", "Moderate", "Severe", "Extremely Severe"]
-                colors = ["#28a745", "#ffc107", "#fd7e14", "#dc3545", "#6f42c1"]
-                
-                col1, col2, col3 = st.columns(3)
-                
-                for i, (condition, pred) in enumerate(best_predictions.items()):
-                    severity = severity_labels[pred - 1]
-                    color = colors[pred - 1]
+            try:
+                with st.spinner("🧠 Analyzing your responses with AI models..."):
+                    # Prepare input data
+                    input_data = {
+                        'GENDER': gender,
+                        'AGE': age,
+                        'MARITAL_STATUS': marital_status,
+                        'EDUCATION_LEVEL': education,
+                        'UNIVERSITY_STATUS': university,
+                        'ACTIVE_SOCIAL_MEDIA': social_media_activity,
+                        'TIME_SPENT_SOCIAL_MEDIA': time_spent,
+                        'CVTOTAL': cyber_exp * 10,
+                        'CVPUBLICHUMILIATION': public_humiliation * 5,
+                        'CVMALICE': malice_exp * 5,
+                        'CVUNWANTEDCONTACT': unwanted_contact * 5,
+                        'MEANPUBLICHUMILIATION': public_humiliation,
+                        'MEANMALICE': malice_exp,
+                        'MEANDECEPTION': deception_exp,
+                        'MEANUNWANTEDCONTACT': unwanted_contact
+                    }
                     
-                    if i == 0:
-                        col = col1
-                    elif i == 1:
-                        col = col2
-                    else:
-                        col = col3
+                    # Preprocess input
+                    processed_input = preprocess_user_input(input_data, label_encoders)
+                    input_df = pd.DataFrame([processed_input])
                     
-                    with col:
-                        st.markdown(f"""
-                        <div style="background: linear-gradient(90deg, {color}22, {color}11); 
-                                   border-left: 4px solid {color}; 
-                                   padding: 1rem; 
-                                   border-radius: 8px; 
-                                   margin: 0.5rem 0;">
-                            <h4 style="color: {color}; margin: 0;">{condition}</h4>
-                            <h2 style="margin: 0.5rem 0;">{severity}</h2>
-                            <small>Level {pred}/5</small>
-                        </div>
-                        """, unsafe_allow_html=True)
-                
-                # Model comparison for this prediction
-                st.subheader("🤖 Model Predictions Comparison")
-                
-                comparison_data = []
-                for condition in ['Depression', 'Stress', 'Anxiety']:
-                    for model_name, pred_data in predictions[condition].items():
-                        comparison_data.append({
-                            'Condition': condition,
-                            'Model': model_name,
-                            'Prediction': pred_data['prediction'],
-                            'Confidence': pred_data['confidence'],
-                            'Severity': severity_labels[pred_data['prediction'] - 1]
-                        })
-                
-                comparison_df = pd.DataFrame(comparison_data)
-                
-                # Create interactive visualization
-                fig = px.bar(comparison_df, 
-                           x='Model', 
-                           y='Prediction', 
-                           color='Condition',
-                           title='Predictions Across All Models',
-                           hover_data=['Severity', 'Confidence'])
-                fig.update_layout(height=400)
-                st.plotly_chart(fig, use_container_width=True)
-                
-                # Detailed model analysis
-                with st.expander("📊 Detailed Model Analysis"):
+                    # Get predictions from all models
+                    predictions = {}
                     for condition in ['Depression', 'Stress', 'Anxiety']:
-                        st.write(f"**{condition} Analysis:**")
-                        model_df = pd.DataFrame([
-                            {
-                                'Model': name,
-                                'Prediction': data['prediction'],
-                                'Severity': severity_labels[data['prediction'] - 1],
-                                'Confidence': f"{data['confidence']:.3f}",
-                                'Accuracy': f"{model_performance[condition][name]['accuracy']:.3f}"
-                            }
-                            for name, data in predictions[condition].items()
-                        ])
-                        st.dataframe(model_df, use_container_width=True)
-                        st.write("")
-                
-                # Personalized recommendations
-                st.subheader("💡 Personalized Recommendations")
-                recommendations = get_enhanced_recommendations(
-                    best_predictions['Stress'],
-                    best_predictions['Anxiety'], 
-                    best_predictions['Depression'],
-                    demographics={'age': age, 'gender': gender}
-                )
-                
-                for rec in recommendations:
-                    if rec.strip():  # Skip empty lines
-                        st.markdown(rec)
-                
-                # Risk assessment
-                max_level = max(best_predictions.values())
-                if max_level >= 4:
-                    st.error("⚠️ **High Risk Detected**: Your assessment indicates concerning levels. Please consider seeking professional help immediately.")
-                elif max_level >= 3:
-                    st.warning("⚠️ **Moderate Risk**: Your results suggest you might benefit from professional support.")
-                else:
-                    st.success("✅ **Low Risk**: Your mental health appears to be in a good range. Keep up the self-care!")
+                        condition_preds = {}
+                        for model_name, model_data in model_results[condition].items():
+                            try:
+                                model = model_data['model']
+                                scaler = model_data['scaler']
+                                
+                                if scaler is not None:
+                                    input_scaled = scaler.transform(input_df)
+                                    pred = model.predict(input_scaled)[0]
+                                    prob = model.predict_proba(input_scaled)[0]
+                                else:
+                                    pred = model.predict(input_df)[0]
+                                    prob = model.predict_proba(input_df)[0]
+                                
+                                condition_preds[model_name] = {
+                                    'prediction': int(pred),
+                                    'probability': prob,
+                                    'confidence': max(prob)
+                                }
+                            except Exception as e:
+                                st.warning(f"Error with {model_name} for {condition}: {e}")
+                                continue
+                                
+                        predictions[condition] = condition_preds
+                    
+                    # Display results if we have predictions
+                    if predictions and any(predictions.values()):
+                        st.success("✅ Analysis Complete!")
+                        
+                        # Get best model predictions (highest accuracy)
+                        best_predictions = {}
+                        for condition in ['Depression', 'Stress', 'Anxiety']:
+                            if condition in model_performance and model_performance[condition]:
+                                best_model = max(model_performance[condition].keys(), 
+                                               key=lambda x: model_performance[condition][x]['accuracy'])
+                                if best_model in predictions[condition]:
+                                    best_predictions[condition] = predictions[condition][best_model]['prediction']
+                                else:
+                                    # Use first available model
+                                    first_model = list(predictions[condition].keys())[0]
+                                    best_predictions[condition] = predictions[condition][first_model]['prediction']
+                        
+                        # Main results display
+                        st.subheader("🎯 Your Mental Health Assessment Results")
+                        
+                        severity_labels = ["Normal", "Mild", "Moderate", "Severe", "Extremely Severe"]
+                        colors = ["#28a745", "#ffc107", "#fd7e14", "#dc3545", "#6f42c1"]
+                        
+                        col1, col2, col3 = st.columns(3)
+                        
+                        for i, (condition, pred) in enumerate(best_predictions.items()):
+                            severity = severity_labels[pred - 1]
+                            color = colors[pred - 1]
+                            
+                            if i == 0:
+                                col = col1
+                            elif i == 1:
+                                col = col2
+                            else:
+                                col = col3
+                            
+                            with col:
+                                st.markdown(f"""
+                                <div style="background: linear-gradient(90deg, {color}22, {color}11); 
+                                           border-left: 4px solid {color}; 
+                                           padding: 1rem; 
+                                           border-radius: 8px; 
+                                           margin: 0.5rem 0;">
+                                    <h4 style="color: {color}; margin: 0;">{condition}</h4>
+                                    <h2 style="margin: 0.5rem 0;">{severity}</h2>
+                                    <small>Level {pred}/5</small>
+                                </div>
+                                """, unsafe_allow_html=True)
+                        
+                        # Personalized recommendations
+                        st.subheader("💡 Personalized Recommendations")
+                        recommendations = get_enhanced_recommendations(
+                            best_predictions.get('Stress', 1),
+                            best_predictions.get('Anxiety', 1), 
+                            best_predictions.get('Depression', 1),
+                            demographics={'age': age, 'gender': gender}
+                        )
+                        
+                        for rec in recommendations:
+                            if rec.strip():  # Skip empty lines
+                                st.markdown(rec)
+                        
+                        # Risk assessment
+                        max_level = max(best_predictions.values()) if best_predictions else 1
+                        if max_level >= 4:
+                            st.error("⚠️ **High Risk Detected**: Your assessment indicates concerning levels. Please consider seeking professional help immediately.")
+                        elif max_level >= 3:
+                            st.warning("⚠️ **Moderate Risk**: Your results suggest you might benefit from professional support.")
+                        else:
+                            st.success("✅ **Low Risk**: Your mental health appears to be in a good range. Keep up the self-care!")
+                    else:
+                        st.error("Unable to generate predictions. Please try again.")
+                        
+            except Exception as e:
+                st.error(f"Error during assessment: {e}")
     
     elif page == "🤖 AI Chatbot":
         st.title("🤖 MindCare AI Assistant")
@@ -830,90 +801,97 @@ def main():
         st.title("📈 Model Performance Analytics")
         st.markdown("Comprehensive analysis of all machine learning models used in the assessment.")
         
-        # Overall performance metrics
-        st.subheader("🎯 Model Performance Overview")
-        
-        # Create performance summary
-        performance_summary = []
-        for condition in ['Depression', 'Stress', 'Anxiety']:
-            for model_name, metrics in model_performance[condition].items():
-                performance_summary.append({
-                    'Condition': condition,
-                    'Model': model_name,
-                    'Accuracy': metrics['accuracy'],
-                    'CV Mean': metrics['cv_mean'],
-                    'CV Std': metrics['cv_std']
-                })
-        
-        summary_df = pd.DataFrame(performance_summary)
-        
-        # Display metrics table
-        st.dataframe(
-            summary_df.pivot(index='Model', columns='Condition', values='Accuracy').round(4),
-            use_container_width=True
-        )
-        
-        # Model comparison visualization
-        st.subheader("📊 Interactive Model Comparison")
-        comparison_chart = create_model_comparison_chart(model_performance)
-        st.plotly_chart(comparison_chart, use_container_width=True)
-        
-        # Best models summary
-        st.subheader("🏆 Best Performing Models")
-        col1, col2, col3 = st.columns(3)
-        
-        for i, condition in enumerate(['Depression', 'Stress', 'Anxiety']):
-            best_model = max(model_performance[condition].keys(), 
-                           key=lambda x: model_performance[condition][x]['accuracy'])
-            best_accuracy = model_performance[condition][best_model]['accuracy']
+        try:
+            # Overall performance metrics
+            st.subheader("🎯 Model Performance Overview")
             
-            if i == 0:
-                col = col1
-            elif i == 1:
-                col = col2
+            # Create performance summary
+            performance_summary = []
+            for condition in ['Depression', 'Stress', 'Anxiety']:
+                for model_name, metrics in model_performance[condition].items():
+                    performance_summary.append({
+                        'Condition': condition,
+                        'Model': model_name,
+                        'Accuracy': metrics['accuracy'],
+                        'CV Mean': metrics['cv_mean'],
+                        'CV Std': metrics['cv_std']
+                    })
+            
+            if performance_summary:
+                summary_df = pd.DataFrame(performance_summary)
+                
+                # Display metrics table
+                pivot_df = summary_df.pivot(index='Model', columns='Condition', values='Accuracy')
+                st.dataframe(pivot_df.round(4), use_container_width=True)
+                
+                # Model comparison visualization
+                st.subheader("📊 Interactive Model Comparison")
+                comparison_chart = create_model_comparison_chart(model_performance)
+                st.plotly_chart(comparison_chart, use_container_width=True)
+                
+                # Best models summary
+                st.subheader("🏆 Best Performing Models")
+                col1, col2, col3 = st.columns(3)
+                
+                for i, condition in enumerate(['Depression', 'Stress', 'Anxiety']):
+                    if condition in model_performance and model_performance[condition]:
+                        best_model = max(model_performance[condition].keys(), 
+                                       key=lambda x: model_performance[condition][x]['accuracy'])
+                        best_accuracy = model_performance[condition][best_model]['accuracy']
+                        
+                        if i == 0:
+                            col = col1
+                        elif i == 1:
+                            col = col2
+                        else:
+                            col = col3
+                        
+                        with col:
+                            st.metric(
+                                f"Best {condition} Model",
+                                best_model,
+                                f"{best_accuracy:.4f} accuracy"
+                            )
+                
+                # Detailed model analysis
+                st.subheader("🔍 Detailed Model Analysis")
+                
+                selected_condition = st.selectbox("Select Condition for Detailed Analysis:", 
+                                                ['Depression', 'Stress', 'Anxiety'])
+                
+                if selected_condition in model_performance and model_performance[selected_condition]:
+                    # Cross-validation scores visualization
+                    cv_data = []
+                    for model_name, metrics in model_performance[selected_condition].items():
+                        cv_data.append({
+                            'Model': model_name,
+                            'CV Mean': metrics['cv_mean'],
+                            'CV Std': metrics['cv_std']
+                        })
+                    
+                    cv_df = pd.DataFrame(cv_data)
+                    
+                    fig = go.Figure()
+                    fig.add_trace(go.Bar(
+                        x=cv_df['Model'],
+                        y=cv_df['CV Mean'],
+                        error_y=dict(type='data', array=cv_df['CV Std']),
+                        name='Cross-Validation Score'
+                    ))
+                    
+                    fig.update_layout(
+                        title=f'{selected_condition} Model Cross-Validation Scores',
+                        xaxis_title='Model',
+                        yaxis_title='Accuracy Score',
+                        height=400
+                    )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
             else:
-                col = col3
-            
-            with col:
-                st.metric(
-                    f"Best {condition} Model",
-                    best_model,
-                    f"{best_accuracy:.4f} accuracy"
-                )
-        
-        # Detailed model analysis
-        st.subheader("🔍 Detailed Model Analysis")
-        
-        selected_condition = st.selectbox("Select Condition for Detailed Analysis:", 
-                                        ['Depression', 'Stress', 'Anxiety'])
-        
-        # Cross-validation scores visualization
-        cv_data = []
-        for model_name, metrics in model_performance[selected_condition].items():
-            cv_data.append({
-                'Model': model_name,
-                'CV Mean': metrics['cv_mean'],
-                'CV Std': metrics['cv_std']
-            })
-        
-        cv_df = pd.DataFrame(cv_data)
-        
-        fig = go.Figure()
-        fig.add_trace(go.Bar(
-            x=cv_df['Model'],
-            y=cv_df['CV Mean'],
-            error_y=dict(type='data', array=cv_df['CV Std']),
-            name='Cross-Validation Score'
-        ))
-        
-        fig.update_layout(
-            title=f'{selected_condition} Model Cross-Validation Scores',
-            xaxis_title='Model',
-            yaxis_title='Accuracy Score',
-            height=400
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
+                st.warning("No performance data available")
+                
+        except Exception as e:
+            st.error(f"Error displaying analytics: {e}")
         
         # Model interpretability
         with st.expander("🧠 Model Interpretability & Features"):
@@ -930,49 +908,52 @@ def main():
             - **Random Forest**: Best overall performance, handles feature interactions well
             - **Gradient Boosting**: Strong at capturing non-linear relationships  
             - **Logistic Regression**: Provides interpretable coefficients
-            - **SVM**: Effective for complex decision boundaries
             """)
         
         # Dataset insights
         st.subheader("📊 Dataset Insights")
         
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            # Distribution of mental health conditions
-            condition_counts = {}
-            for condition in ['Depression', 'Stress', 'Anxiety']:
-                counts = df[condition].value_counts().sort_index()
-                condition_counts[condition] = counts
+        try:
+            col1, col2 = st.columns(2)
             
-            fig = go.Figure()
-            for condition, counts in condition_counts.items():
-                fig.add_trace(go.Bar(
-                    x=[f"Level {i}" for i in counts.index],
-                    y=counts.values,
-                    name=condition
-                ))
+            with col1:
+                # Distribution of mental health conditions
+                condition_counts = {}
+                for condition in ['Depression', 'Stress', 'Anxiety']:
+                    counts = df[condition].value_counts().sort_index()
+                    condition_counts[condition] = counts
+                
+                fig = go.Figure()
+                for condition, counts in condition_counts.items():
+                    fig.add_trace(go.Bar(
+                        x=[f"Level {i}" for i in counts.index],
+                        y=counts.values,
+                        name=condition
+                    ))
+                
+                fig.update_layout(
+                    title='Distribution of Mental Health Conditions',
+                    xaxis_title='Severity Level',
+                    yaxis_title='Count',
+                    height=400
+                )
+                st.plotly_chart(fig, use_container_width=True)
             
-            fig.update_layout(
-                title='Distribution of Mental Health Conditions',
-                xaxis_title='Severity Level',
-                yaxis_title='Count',
-                height=400
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        
-        with col2:
-            # Correlation heatmap
-            numeric_cols = df.select_dtypes(include=[np.number]).columns
-            corr_matrix = df[numeric_cols].corr()
-            
-            fig = px.imshow(
-                corr_matrix,
-                title='Feature Correlation Matrix',
-                color_continuous_scale='RdBu_r',
-                height=400
-            )
-            st.plotly_chart(fig, use_container_width=True)
+            with col2:
+                # Correlation heatmap
+                numeric_cols = df.select_dtypes(include=[np.number]).columns
+                corr_matrix = df[numeric_cols].corr()
+                
+                fig = px.imshow(
+                    corr_matrix,
+                    title='Feature Correlation Matrix',
+                    color_continuous_scale='RdBu_r',
+                    height=400
+                )
+                st.plotly_chart(fig, use_container_width=True)
+                
+        except Exception as e:
+            st.error(f"Error creating visualizations: {e}")
         
         # Model deployment info
         with st.expander("🚀 Model Deployment Information"):
@@ -980,16 +961,15 @@ def main():
             **Training Dataset**: {len(df):,} samples with {len(X.columns)} features
             
             **Model Training Details**:
-            - **Random Forest**: 100 trees, max depth 10
-            - **Gradient Boosting**: Default parameters, max depth 6  
-            - **Logistic Regression**: L2 regularization, max iter 1000
-            - **SVM**: RBF kernel, probability estimates enabled
+            - **Random Forest**: 50 trees, max depth 8
+            - **Gradient Boosting**: 50 estimators, max depth 5  
+            - **Logistic Regression**: L2 regularization, max iter 500
             
             **Data Preprocessing**:
             - Label encoding for categorical variables
-            - Standard scaling for SVM and Logistic Regression
+            - Standard scaling for Logistic Regression
             - 80/20 train-test split with stratification
-            - 5-fold cross-validation for model evaluation
+            - 3-fold cross-validation for model evaluation
             
             **Last Updated**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
             """)
@@ -1115,6 +1095,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
