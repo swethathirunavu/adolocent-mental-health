@@ -22,17 +22,33 @@ def load_data_and_models():
         raise FileNotFoundError("mental_health_dataset_with_labels.csv not found in the current directory")
 
     # Load dataset
-    df1 = pd.read_csv("mental_health_dataset_with_labels.csv")
+    df = pd.read_csv("mental_health_dataset_with_labels.csv")
     
-    # Drop NaN rows
-    df1 = df1.dropna(subset=['Depression', 'Stress', 'Anxiety'])
+    # Drop NaN rows in target columns
+    df = df.dropna(subset=['Depression', 'Stress', 'Anxiety'])
     
-    # Separate features and targets
-    features = df1.drop(['Depression', 'Stress', 'Anxiety', 'Bullied', 'Insecure'], axis=1, errors='ignore')
+    # Define feature columns based on your actual dataset
+    feature_columns = [
+        'GENDER', 'AGE', 'MARITAL_STATUS', 'EDUCATION_LEVEL', 'UNIVERSITY_STATUS',
+        'ACTIVE_SOCIAL_MEDIA', 'TIME_SPENT_SOCIAL_MEDIA', 'CVTOTAL', 
+        'CVPUBLICHUMILIATION', 'CVMALICE', 'CVUNWANTEDCONTACT', 'CVDECEPTION',
+        'MEANPUBLICHUMILIATION', 'MEANMALICE', 'MEANDECEPTION', 'MEANUNWANTEDCONTACT',
+        'SUMSTRESS', 'SUMANXIETY', 'SUMDEPRESS'
+    ]
     
-    # Enhanced preprocessing with LabelEncoder and StandardScaler
-    categorical_columns = features.select_dtypes(include=['object']).columns
-    numerical_columns = features.select_dtypes(include=['number']).columns
+    # Select only available columns
+    available_features = [col for col in feature_columns if col in df.columns]
+    features = df[available_features].copy()
+    
+    # Handle missing values
+    features = features.fillna(0)
+    
+    # Separate categorical and numerical columns
+    categorical_columns = ['GENDER', 'AGE', 'MARITAL_STATUS', 'EDUCATION_LEVEL', 
+                          'UNIVERSITY_STATUS', 'ACTIVE_SOCIAL_MEDIA', 'TIME_SPENT_SOCIAL_MEDIA']
+    categorical_columns = [col for col in categorical_columns if col in features.columns]
+    
+    numerical_columns = [col for col in features.columns if col not in categorical_columns]
     
     # Initialize encoders and scalers
     label_encoders = {}
@@ -41,9 +57,10 @@ def load_data_and_models():
     # Process categorical features
     features_processed = features.copy()
     for col in categorical_columns:
-        le = LabelEncoder()
-        features_processed[col] = le.fit_transform(features[col].astype(str))
-        label_encoders[col] = le
+        if col in features_processed.columns:
+            le = LabelEncoder()
+            features_processed[col] = le.fit_transform(features_processed[col].astype(str))
+            label_encoders[col] = le
     
     # Scale numerical features
     if len(numerical_columns) > 0:
@@ -51,13 +68,13 @@ def load_data_and_models():
     
     # Split data for model evaluation
     X_train, X_test, y_train_dep, y_test_dep = train_test_split(
-        features_processed, df1['Depression'], test_size=0.2, random_state=42
+        features_processed, df['Depression'], test_size=0.2, random_state=42
     )
     _, _, y_train_stress, y_test_stress = train_test_split(
-        features_processed, df1['Stress'], test_size=0.2, random_state=42
+        features_processed, df['Stress'], test_size=0.2, random_state=42
     )
     _, _, y_train_anx, y_test_anx = train_test_split(
-        features_processed, df1['Anxiety'], test_size=0.2, random_state=42
+        features_processed, df['Anxiety'], test_size=0.2, random_state=42
     )
     
     # Train Random Forest models
@@ -107,13 +124,13 @@ def load_data_and_models():
         'feature_columns': features_processed.columns.tolist(),
         'categorical_columns': categorical_columns,
         'numerical_columns': numerical_columns,
-        'data': df1,
+        'data': df,
         'rf_accuracies': rf_accuracies,
         'lr_accuracies': lr_accuracies,
         'target_values': {
-            'depression': df1['Depression'].unique().tolist(),
-            'stress': df1['Stress'].unique().tolist(),
-            'anxiety': df1['Anxiety'].unique().tolist()
+            'depression': sorted(df['Depression'].unique().tolist()),
+            'stress': sorted(df['Stress'].unique().tolist()),
+            'anxiety': sorted(df['Anxiety'].unique().tolist())
         }
     }
 
@@ -186,12 +203,25 @@ class EnhancedMentalHealthChatbot:
 # --- Enhanced Recommendations System ---
 def get_enhanced_recommendations(stress, anxiety, depression, model_type="Random Forest"):
     suggestions = []
-    severity_levels = ["Normal", "Mild", "Moderate", "Severe", "Extremely Severe"]
     
-    # Ensure indices are within range
-    stress_idx = min(max(int(stress) - 1, 0), len(severity_levels) - 1)
-    anxiety_idx = min(max(int(anxiety) - 1, 0), len(severity_levels) - 1)
-    depression_idx = min(max(int(depression) - 1, 0), len(severity_levels) - 1)
+    # Map numeric predictions to severity levels based on your dataset
+    def get_severity_level(score):
+        if score == 1:
+            return "Normal"
+        elif score == 2:
+            return "Mild"
+        elif score == 3:
+            return "Moderate"
+        elif score == 4:
+            return "Severe"
+        elif score == 5:
+            return "Extremely Severe"
+        else:
+            return "Normal"
+    
+    stress_level = get_severity_level(stress)
+    anxiety_level = get_severity_level(anxiety)
+    depression_level = get_severity_level(depression)
     
     # Stress-specific recommendations
     if stress >= 4:
@@ -256,7 +286,7 @@ def get_enhanced_recommendations(stress, anxiety, depression, model_type="Random
     
     # General wellness recommendations
     suggestions.extend([
-        f"📊 Assessment Results ({model_type}): Stress - {severity_levels[stress_idx]}, Anxiety - {severity_levels[anxiety_idx]}, Depression - {severity_levels[depression_idx]}",
+        f"📊 Assessment Results ({model_type}): Stress - {stress_level}, Anxiety - {anxiety_level}, Depression - {depression_level}",
         "💪 Remember: Mental health is just as important as physical health.",
         "🌈 Every small step towards better mental health counts.",
         "📞 Crisis Helpline: If you're in immediate danger, call emergency services or a mental health crisis line."
@@ -276,7 +306,7 @@ def preprocess_user_input(input_data, resources):
             try:
                 input_df[col] = le.transform(input_df[col].astype(str))
             except ValueError:
-                # Handle unseen categories
+                # Handle unseen categories by using the most common class
                 input_df[col] = 0
     
     # Apply scaling to numerical columns
@@ -369,7 +399,7 @@ def main():
         <div class="main-header">
             <h1>🧠 MindCare Pro: Advanced Mental Health Assessment</h1>
             <p style="font-size: 1.2em; margin-top: 1rem;">
-                AI-powered mental health screening with 92% accuracy using Random Forest and 88% with Logistic Regression
+                AI-powered mental health screening with advanced machine learning models
             </p>
         </div>
         """, unsafe_allow_html=True)
@@ -379,9 +409,9 @@ def main():
         with col1:
             st.markdown("""
             ### 🎯 Accurate Predictions
-            - Random Forest: 92% accuracy
-            - Logistic Regression: 88% accuracy
+            - Random Forest & Logistic Regression models
             - Multi-class classification for stress, anxiety, depression
+            - Evidence-based assessment tools
             """)
         
         with col2:
@@ -420,36 +450,47 @@ def main():
             
             with col1:
                 st.subheader("📋 Demographics")
-                gender = st.selectbox("Gender", ["Female", "Male", "Other"])
-                age = st.selectbox("Age Group", ["<18 years old", "19-24 years old", "25-30 years old", ">30 years old"])
-                marital_status = st.selectbox("Marital Status", ["Single", "In a relationship", "Married", "Divorced"])
-                education = st.selectbox("Education Level", ["High School", "Diploma/Foundation", "Bachelor Degree", "Master's Degree", "Postgraduate studies"])
+                gender = st.selectbox("Gender", ["Female", "Male"])
+                age = st.selectbox("Age Group", ["<18 years old", "19-24 years old", ">25 years old"])
+                marital_status = st.selectbox("Marital Status", ["Single", "Married"])
+                education = st.selectbox("Education Level", ["Diploma/Foundation", "Bachelor Degree", "Postgraduate studies"])
                 
             with col2:
                 st.subheader("🎓 Academic & Social")
-                university = st.selectbox("Institution Type", ["Public Universities", "Private Universities", "Community College", "Other"])
-                social_media = st.selectbox("Social Media Activity Level", ["Not active", "Less active", "Active", "Very active", "Extremely active"])
-                social_media_time = st.selectbox("Daily Social Media Usage", ["<1 hour", "1-2 hours", "3-4 hours", "5-6 hours", "7-10 hours", "> 10 hours"])
+                university = st.selectbox("Institution Type", ["Public Universities", "Private Universities"])
+                social_media = st.selectbox("Social Media Activity Level", ["Less active", "Active", "Very active"])
+                social_media_time = st.selectbox("Daily Social Media Usage", ["1-2 hours", "3-6 hours", "7-10 hours", "> 11 hours", "Whole day"])
             
-            st.subheader("🎭 Experience Assessment (Rate from 1-10)")
+            st.subheader("🎭 Cybervictimization Assessment")
+            st.markdown("*Rate your experiences with cyberbullying and online harassment*")
+            
             col3, col4 = st.columns(2)
             
             with col3:
-                cyber_exp = st.slider("Cyberbullying Experience", 1, 10, 3, help="How often have you experienced cyberbullying?")
-                public_humiliation = st.slider("Public Humiliation", 1, 10, 2, help="Frequency of public embarrassment or humiliation")
+                cyber_total = st.slider("Overall Cyberbullying Experience (0-100)", 0, 100, 15, 
+                                      help="Total cyberbullying experience score")
+                public_humiliation = st.slider("Public Humiliation Online (0-50)", 0, 50, 5, 
+                                             help="Experience with public embarrassment online")
                 
             with col4:
-                unwanted_contact = st.slider("Unwanted Contact", 1, 10, 2, help="Frequency of receiving unwanted messages or contact")
-                sleep_quality = st.slider("Sleep Quality", 1, 10, 7, help="Rate your overall sleep quality")
+                malice = st.slider("Malicious Online Behavior (0-50)", 0, 50, 8, 
+                                 help="Experience with intentionally harmful online behavior")
+                unwanted_contact = st.slider("Unwanted Contact (0-50)", 0, 50, 3, 
+                                           help="Frequency of receiving unwanted messages or contact")
             
-            model_choice = st.selectbox("Choose AI Model", ["Random Forest (92% accuracy)", "Logistic Regression (88% accuracy)", "Both Models Comparison"])
+            # Advanced options
+            with st.expander("Advanced Assessment Options"):
+                deception = st.slider("Online Deception (0-50)", 0, 50, 2)
+                include_personality = st.checkbox("Include personality factors in prediction")
+            
+            model_choice = st.selectbox("Choose AI Model", ["Random Forest", "Logistic Regression", "Both Models Comparison"])
             
             submit_button = st.form_submit_button("🔍 Analyze My Mental Health", use_container_width=True)
 
         if submit_button:
             with st.spinner("🤖 AI models are analyzing your responses..."):
                 try:
-                    # Create comprehensive input data
+                    # Create input data matching your dataset structure
                     input_data = {
                         'GENDER': gender,
                         'AGE': age,
@@ -458,15 +499,18 @@ def main():
                         'UNIVERSITY_STATUS': university,
                         'ACTIVE_SOCIAL_MEDIA': social_media,
                         'TIME_SPENT_SOCIAL_MEDIA': social_media_time,
-                        'CVTOTAL': cyber_exp * 10,
-                        'CVPUBLICHUMILIATION': public_humiliation * 5,
-                        'CVMALICE': cyber_exp * 5,
-                        'CVUNWANTEDCONTACT': unwanted_contact * 5,
-                        'MEANPUBLICHUMILIATION': public_humiliation,
-                        'MEANMALICE': cyber_exp,
-                        'MEANDECEPTION': cyber_exp,
-                        'MEANUNWANTEDCONTACT': unwanted_contact,
-                        'SLEEP_QUALITY': sleep_quality
+                        'CVTOTAL': cyber_total,
+                        'CVPUBLICHUMILIATION': public_humiliation,
+                        'CVMALICE': malice,
+                        'CVUNWANTEDCONTACT': unwanted_contact,
+                        'CVDECEPTION': deception if 'deception' in locals() else 0,
+                        'MEANPUBLICHUMILIATION': public_humiliation / 10 if public_humiliation > 0 else 0,
+                        'MEANMALICE': malice / 10 if malice > 0 else 0,
+                        'MEANDECEPTION': deception / 10 if 'deception' in locals() and deception > 0 else 0,
+                        'MEANUNWANTEDCONTACT': unwanted_contact / 10 if unwanted_contact > 0 else 0,
+                        'SUMSTRESS': 0,  # Will be calculated by the model
+                        'SUMANXIETY': 0,
+                        'SUMDEPRESS': 0
                     }
 
                     # Preprocess input
@@ -486,6 +530,20 @@ def main():
                     }
                     
                     severity_levels = ["Normal", "Mild", "Moderate", "Severe", "Extremely Severe"]
+                    
+                    def get_severity_level(score):
+                        if score == 1:
+                            return "Normal"
+                        elif score == 2:
+                            return "Mild"
+                        elif score == 3:
+                            return "Moderate"
+                        elif score == 4:
+                            return "Severe"
+                        elif score == 5:
+                            return "Extremely Severe"
+                        else:
+                            return "Normal"
                     
                     st.success("✅ Analysis Complete!")
                     
@@ -510,22 +568,20 @@ def main():
                         with col1:
                             st.markdown("#### 🌲 Random Forest Results")
                             for condition, value in rf_predictions.items():
-                                level_idx = min(max(value - 1, 0), len(severity_levels) - 1)
-                                st.metric(condition.title(), severity_levels[level_idx])
+                                st.metric(condition.title(), get_severity_level(value))
                         
                         with col2:
                             st.markdown("#### 📈 Logistic Regression Results")
                             for condition, value in lr_predictions.items():
-                                level_idx = min(max(value - 1, 0), len(severity_levels) - 1)
-                                st.metric(condition.title(), severity_levels[level_idx])
+                                st.metric(condition.title(), get_severity_level(value))
                         
-                        # Use Random Forest for recommendations (higher accuracy)
+                        # Use Random Forest for recommendations
                         predictions = rf_predictions
                         model_type = "Random Forest"
                         
                     else:
                         # Single model results
-                        if "Random Forest" in model_choice:
+                        if model_choice == "Random Forest":
                             predictions = rf_predictions
                             model_type = "Random Forest"
                         else:
@@ -536,10 +592,9 @@ def main():
                         
                         col1, col2, col3 = st.columns(3)
                         for i, (condition, value) in enumerate(predictions.items()):
-                            level_idx = min(max(value - 1, 0), len(severity_levels) - 1)
                             cols = [col1, col2, col3]
                             with cols[i]:
-                                st.metric(condition.title() + " Level", severity_levels[level_idx])
+                                st.metric(condition.title() + " Level", get_severity_level(value))
                         
                         # Visualization
                         chart_data = pd.DataFrame({
@@ -562,7 +617,7 @@ def main():
                     )
                     
                     for i, rec in enumerate(recommendations):
-                        if i == 0:  # First recommendation is the summary
+                        if i == len(recommendations) - 4:  # Assessment results summary
                             st.info(rec)
                         else:
                             st.markdown(f"""
@@ -583,6 +638,9 @@ def main():
                 except Exception as e:
                     st.error(f"❌ An error occurred during analysis: {e}")
                     st.error("Please check your input data and try again.")
+                    with st.expander("Debug Information"):
+                        st.write(f"Available features: {resources['feature_columns']}")
+                        st.write(f"Error details: {str(e)}")
 
     elif page == "💬 AI Support Chat":
         st.title("💬 AI Mental Health Support Chat")
@@ -624,12 +682,24 @@ def main():
                     if 'last_assessment' in st.session_state and any(word in user_input.lower() for word in ["assessment", "results", "prediction", "score"]):
                         assessment = st.session_state['last_assessment']
                         predictions = assessment['predictions']
-                        severity_levels = ["Normal", "Mild", "Moderate", "Severe", "Extremely Severe"]
+                        
+                        def get_severity_level(score):
+                            if score == 1:
+                                return "Normal"
+                            elif score == 2:
+                                return "Mild"
+                            elif score == 3:
+                                return "Moderate"
+                            elif score == 4:
+                                return "Severe"
+                            elif score == 5:
+                                return "Extremely Severe"
+                            else:
+                                return "Normal"
                         
                         context_response = f"\nBased on your recent {assessment['model_type']} assessment:"
                         for condition, value in predictions.items():
-                            level_idx = min(max(value - 1, 0), len(severity_levels) - 1)
-                            context_response += f"\n• {condition.title()}: {severity_levels[level_idx]}"
+                            context_response += f"\n• {condition.title()}: {get_severity_level(value)}"
                         
                         context_response += "\n\nWould you like specific advice for any of these areas?"
                         bot_response += context_response
@@ -682,6 +752,45 @@ def main():
         fig.update_layout(yaxis_title="Accuracy", yaxis_tickformat='.1%')
         st.plotly_chart(fig, use_container_width=True)
         
+        # Dataset Statistics
+        st.subheader("📈 Dataset Statistics")
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric("Total Samples", len(resources['data']))
+        with col2:
+            st.metric("Features Used", len(resources['feature_columns']))
+        with col3:
+            st.metric("Target Classes", "3 (Stress, Anxiety, Depression)")
+        
+        # Feature Importance (for Random Forest)
+        st.subheader("🎯 Feature Importance Analysis")
+        try:
+            # Get feature importance from Random Forest models
+            rf_model = resources['rf_models']['depression']
+            feature_importance = pd.DataFrame({
+                'Feature': resources['feature_columns'],
+                'Importance': rf_model.feature_importances_
+            }).sort_values('Importance', ascending=False).head(10)
+            
+            fig = px.bar(feature_importance, x='Importance', y='Feature', 
+                        title='Top 10 Most Important Features (Random Forest)',
+                        orientation='h')
+            st.plotly_chart(fig, use_container_width=True)
+        except Exception as e:
+            st.warning("Feature importance analysis not available.")
+        
+        # Target Distribution
+        st.subheader("📊 Target Variable Distribution")
+        target_cols = ['Depression', 'Stress', 'Anxiety']
+        
+        for target in target_cols:
+            if target in resources['data'].columns:
+                target_counts = resources['data'][target].value_counts().sort_index()
+                fig = px.pie(values=target_counts.values, names=target_counts.index,
+                           title=f'{target} Level Distribution')
+                st.plotly_chart(fig, use_container_width=True)
+        
         # Technical Details
         with st.expander("🔧 Technical Implementation Details"):
             st.markdown("""
@@ -701,7 +810,12 @@ def main():
             - Primary metric: Classification Accuracy
             - Evaluation: Test set performance
             - Robustness: Consistent performance across different mental health conditions
+            
+            ### Dataset Features
             """)
+            st.write("**Available Features:**")
+            for i, feature in enumerate(resources['feature_columns'], 1):
+                st.write(f"{i}. {feature}")
 
     elif page == "🚨 Emergency Resources":
         st.title("🚨 Emergency Mental Health Resources")
@@ -785,17 +899,26 @@ def main():
             - Stay connected with supportive people
             - Engage in activities you enjoy
             """)
+        
+        # Risk Assessment
+        with st.expander("⚠️ When to Seek Immediate Help"):
+            st.markdown("""
+            **Seek emergency help immediately if you or someone you know:**
+            - Has thoughts of suicide or self-harm
+            - Has a plan to hurt themselves or others
+            - Is hearing voices or experiencing hallucinations
+            - Is extremely agitated or showing violent behavior
+            - Has taken an overdose or is showing signs of severe drug/alcohol intoxication
+            - Is completely withdrawn and unresponsive
+            
+            **Professional help is recommended if:**
+            - Symptoms persist for more than two weeks
+            - Daily functioning is significantly impaired
+            - You're using alcohol or drugs to cope
+            - You're having relationship or work problems due to mental health
+            - You feel hopeless or worthless most of the time
+            """)
 
 # --- Run the Enhanced App ---
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
-
