@@ -6,6 +6,7 @@ from sklearn.model_selection import train_test_split, GridSearchCV, cross_val_sc
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
 from sklearn.impute import SimpleImputer
+import xgboost as xgb
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -17,14 +18,6 @@ import json
 from datetime import datetime
 import warnings
 warnings.filterwarnings('ignore')
-
-# Conditional XGBoost import
-try:
-    import xgboost as xgb
-    XGBOOST_AVAILABLE = True
-except ImportError:
-    XGBOOST_AVAILABLE = False
-    st.warning("XGBoost not available. Using RandomForest and GradientBoosting only.")
 
 # --- Enhanced Configuration ---
 st.set_page_config(
@@ -101,7 +94,7 @@ class EnhancedMentalHealthPredictor:
         self.feature_importance = {}
         self.model_accuracy = {}
         
-    def create_synthetic_dataset(self, n_samples=3000):  # Reduced samples for better performance
+    def create_synthetic_dataset(self, n_samples=5000):
         """Create a more realistic synthetic dataset for demo purposes"""
         np.random.seed(42)
         
@@ -153,10 +146,10 @@ class EnhancedMentalHealthPredictor:
             np.random.normal(0, 1, n_samples)
         )
         
-        # Convert to categorical scales (0-4: Normal, Mild, Moderate, Severe, Extremely Severe)
+        # Convert to categorical scales (1-5: Normal, Mild, Moderate, Severe, Extremely Severe)
         def to_severity_scale(values):
             normalized = (values - values.min()) / (values.max() - values.min())
-            return np.floor(normalized * 5).astype(int).clip(0, 4)  # Changed to 0-4 scale
+            return np.ceil(normalized * 5).astype(int).clip(1, 5)
         
         stress_levels = to_severity_scale(base_stress)
         anxiety_levels = to_severity_scale(base_anxiety)
@@ -217,7 +210,7 @@ class EnhancedMentalHealthPredictor:
         return df_processed
     
     def train_enhanced_models(self, df):
-        """Train multiple models with hyperparameter tuning - Fixed version"""
+        """Train multiple models with hyperparameter tuning"""
         df_processed = self.preprocess_data(df)
         
         # Separate features and targets
@@ -230,8 +223,12 @@ class EnhancedMentalHealthPredictor:
         for target in target_cols:
             y = df_processed[target]
             
+            # Convert labels to 0-based indexing for XGBoost compatibility
+            # Original: [1, 2, 3, 4, 5] -> [0, 1, 2, 3, 4]
+            y_encoded = y - 1
+            
             # Split data
-            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+            X_train, X_test, y_train, y_test = train_test_split(X, y_encoded, test_size=0.2, random_state=42, stratify=y_encoded)
             
             # Scale features
             scaler = StandardScaler()
@@ -239,23 +236,12 @@ class EnhancedMentalHealthPredictor:
             X_test_scaled = scaler.transform(X_test)
             self.scalers[target] = scaler
             
-            # Define models with error handling
+            # Try multiple algorithms
             models_to_try = {
+                'XGBoost': xgb.XGBClassifier(random_state=42, eval_metric='mlogloss', num_class=5),
                 'RandomForest': RandomForestClassifier(random_state=42),
                 'GradientBoosting': GradientBoostingClassifier(random_state=42)
             }
-            
-            # Only add XGBoost if available
-            if XGBOOST_AVAILABLE:
-                try:
-                    models_to_try['XGBoost'] = xgb.XGBClassifier(
-                        random_state=42, 
-                        eval_metric='logloss',  # Changed from mlogloss
-                        verbosity=0,
-                        use_label_encoder=False
-                    )
-                except Exception as e:
-                    st.warning(f"XGBoost initialization failed: {str(e)}")
             
             best_model = None
             best_score = 0
@@ -263,40 +249,28 @@ class EnhancedMentalHealthPredictor:
             
             for model_name, model in models_to_try.items():
                 try:
-                    # Simplified hyperparameter tuning
+                    # Hyperparameter tuning
                     if model_name == 'XGBoost':
                         param_grid = {
-                            'n_estimators': [100, 150],
-                            'max_depth': [3, 5],
-                            'learning_rate': [0.1, 0.15]
+                            'n_estimators': [100, 200],
+                            'max_depth': [3, 5, 7],
+                            'learning_rate': [0.1, 0.2]
                         }
                     elif model_name == 'RandomForest':
                         param_grid = {
-                            'n_estimators': [100, 150],
-                            'max_depth': [5, 10],
+                            'n_estimators': [100, 200],
+                            'max_depth': [5, 10, None],
                             'min_samples_split': [2, 5]
                         }
                     else:  # GradientBoosting
                         param_grid = {
-                            'n_estimators': [100, 150],
+                            'n_estimators': [100, 200],
                             'max_depth': [3, 5],
-                            'learning_rate': [0.1, 0.15]
+                            'learning_rate': [0.1, 0.2]
                         }
                     
-                    # Use reduced CV and single job to avoid resource issues
-                    grid_search = GridSearchCV(
-                        model, 
-                        param_grid, 
-                        cv=3,
-                        scoring='accuracy', 
-                        n_jobs=1,
-                        error_score=0.0,  # Return 0 score instead of raising error
-                        verbose=0
-                    )
-                    
-                    # Progress indicator
-                    with st.spinner(f'Training {model_name} for {target}...'):
-                        grid_search.fit(X_train_scaled, y_train)
+                    grid_search = GridSearchCV(model, param_grid, cv=3, scoring='accuracy', n_jobs=-1, error_score='raise')
+                    grid_search.fit(X_train_scaled, y_train)
                     
                     # Evaluate
                     score = grid_search.best_score_
@@ -307,15 +281,27 @@ class EnhancedMentalHealthPredictor:
                         
                 except Exception as e:
                     st.warning(f"Error training {model_name} for {target}: {str(e)}")
-                    continue
+                    # Try with default parameters as fallback
+                    try:
+                        model.fit(X_train_scaled, y_train)
+                        score = model.score(X_test_scaled, y_test)
+                        if score > best_score:
+                            best_score = score
+                            best_model = model
+                            best_model_name = f"{model_name} (default)"
+                    except Exception as e2:
+                        st.error(f"Failed to train {model_name} even with default parameters: {str(e2)}")
+                        continue
             
-            # Fallback to simple RandomForest if all models fail
+            # Ensure we have a model trained
             if best_model is None:
-                st.warning(f"All advanced models failed for {target}. Using simple RandomForest.")
-                best_model = RandomForestClassifier(n_estimators=100, random_state=42)
-                best_model.fit(X_train_scaled, y_train)
-                best_score = cross_val_score(best_model, X_train_scaled, y_train, cv=3).mean()
+                # Fallback to a simple model if all others fail
+                st.warning(f"All advanced models failed for {target}. Using basic Random Forest.")
+                fallback_model = RandomForestClassifier(n_estimators=50, random_state=42)
+                fallback_model.fit(X_train_scaled, y_train)
+                best_model = fallback_model
                 best_model_name = "RandomForest (Fallback)"
+                best_score = fallback_model.score(X_test_scaled, y_test)
             
             # Store the best model
             self.models[target] = best_model
@@ -342,38 +328,22 @@ class EnhancedMentalHealthPredictor:
         predictions = {}
         probabilities = {}
         
-        # Handle case where input_data might have more features than training data
-        if len(input_data) > len(self.feature_columns):
-            input_data = input_data[:len(self.feature_columns)]
-        elif len(input_data) < len(self.feature_columns):
-            # Pad with zeros if needed
-            input_data.extend([0] * (len(self.feature_columns) - len(input_data)))
-        
         for target in ['Stress', 'Anxiety', 'Depression']:
             if target in self.models:
-                try:
-                    # Scale input
-                    input_scaled = self.scalers[target].transform([input_data])
-                    
-                    # Predict
-                    pred = self.models[target].predict(input_scaled)[0]
-                    prob = self.models[target].predict_proba(input_scaled)[0]
-                    
-                    predictions[target] = pred
-                    probabilities[target] = {
-                        'prediction': pred,
-                        'confidence': max(prob),
-                        'probabilities': prob
-                    }
-                except Exception as e:
-                    st.error(f"Error predicting {target}: {str(e)}")
-                    # Fallback prediction
-                    predictions[target] = 2  # Moderate (changed from 3)
-                    probabilities[target] = {
-                        'prediction': 2,
-                        'confidence': 0.5,
-                        'probabilities': [0.2, 0.2, 0.2, 0.2, 0.2]
-                    }
+                # Scale input
+                input_scaled = self.scalers[target].transform([input_data])
+                
+                # Predict (returns 0-4, need to convert back to 1-5)
+                pred_encoded = self.models[target].predict(input_scaled)[0]
+                pred = pred_encoded + 1  # Convert back to original scale
+                prob = self.models[target].predict_proba(input_scaled)[0]
+                
+                predictions[target] = int(pred)
+                probabilities[target] = {
+                    'prediction': int(pred),
+                    'confidence': max(prob),
+                    'probabilities': prob
+                }
         
         return predictions, probabilities
 
@@ -504,21 +474,20 @@ class EnhancedMentalHealthChatbot:
 def initialize_system():
     predictor = EnhancedMentalHealthPredictor()
     
-    with st.spinner('Initializing AI models... This may take a moment.'):
-        # Try to load real data, otherwise create synthetic
-        try:
-            if os.path.exists("mental_health_dataset_with_labels.csv"):
-                df = pd.read_csv("mental_health_dataset_with_labels.csv")
-                df = df.dropna(subset=['Depression', 'Stress', 'Anxiety'])
-            else:
-                df = predictor.create_synthetic_dataset()
-                st.info("Using synthetic dataset for demonstration. Upload your dataset for real predictions.")
-        except Exception as e:
+    # Try to load real data, otherwise create synthetic
+    try:
+        if os.path.exists("mental_health_dataset_with_labels.csv"):
+            df = pd.read_csv("mental_health_dataset_with_labels.csv")
+            df = df.dropna(subset=['Depression', 'Stress', 'Anxiety'])
+        else:
             df = predictor.create_synthetic_dataset()
-            st.warning(f"Error loading dataset: {e}. Using synthetic data.")
-        
-        predictor.train_enhanced_models(df)
-        chatbot = EnhancedMentalHealthChatbot()
+            st.info("Using synthetic dataset for demonstration. Upload your dataset for real predictions.")
+    except Exception as e:
+        df = predictor.create_synthetic_dataset()
+        st.warning(f"Error loading dataset: {e}. Using synthetic data.")
+    
+    predictor.train_enhanced_models(df)
+    chatbot = EnhancedMentalHealthChatbot()
     
     return predictor, chatbot, df
 
@@ -527,11 +496,7 @@ def main():
     load_css()
     
     # Initialize system
-    try:
-        predictor, chatbot, df = initialize_system()
-    except Exception as e:
-        st.error(f"Failed to initialize system: {str(e)}")
-        st.stop()
+    predictor, chatbot, df = initialize_system()
     
     # Header
     st.markdown("""
@@ -586,7 +551,7 @@ def show_home_page(predictor, df):
         st.markdown("### 🎯 What Makes MindCare Pro Different?")
         
         features = [
-            "🤖 **Advanced ML Models**: RandomForest, Gradient Boosting" + (" and XGBoost" if XGBOOST_AVAILABLE else ""),
+            "🤖 **Advanced ML Models**: XGBoost, Random Forest, and Gradient Boosting with hyperparameter optimization",
             "📊 **High Accuracy**: Achieving 85-95% accuracy through advanced feature engineering",
             "🔍 **Feature Importance Analysis**: Understanding which factors matter most",
             "💡 **Intelligent Chatbot**: Context-aware responses with crisis detection",
@@ -626,18 +591,17 @@ def show_model_performance(predictor, df):
     
     for i, target in enumerate(targets):
         with [col1, col2, col3][i]:
-            if target in predictor.model_accuracy:
-                metrics = predictor.model_accuracy[target]
-                accuracy = metrics['test_accuracy'] * 100
-                model_type = metrics['model_type']
-                
-                st.markdown(f"""
-                <div class="metric-container">
-                    <h3>{target}</h3>
-                    <h2>{accuracy:.1f}%</h2>
-                    <p>Model: {model_type}</p>
-                </div>
-                """, unsafe_allow_html=True)
+            metrics = predictor.model_accuracy[target]
+            accuracy = metrics['test_accuracy'] * 100
+            model_type = metrics['model_type']
+            
+            st.markdown(f"""
+            <div class="metric-container">
+                <h3>{target}</h3>
+                <h2>{accuracy:.1f}%</h2>
+                <p>Model: {model_type}</p>
+            </div>
+            """, unsafe_allow_html=True)
     
     # Feature Importance Analysis
     st.markdown("### 🔍 Feature Importance Analysis")
@@ -734,8 +698,8 @@ def show_assessment_page(predictor):
             
             # Main metrics
             col1, col2, col3 = st.columns(3)
-            severity_labels = {0: "Normal", 1: "Mild", 2: "Moderate", 3: "Severe", 4: "Extremely Severe"}
-            colors = {0: "#28a745", 1: "#ffc107", 2: "#fd7e14", 3: "#dc3545", 4: "#6f42c1"}
+            severity_labels = {1: "Normal", 2: "Mild", 3: "Moderate", 4: "Severe", 5: "Extremely Severe"}
+            colors = {1: "#28a745", 2: "#ffc107", 3: "#fd7e14", 4: "#dc3545", 5: "#6f42c1"}
             
             for i, (col, target) in enumerate(zip([col1, col2, col3], ['Stress', 'Anxiety', 'Depression'])):
                 with col:
@@ -764,17 +728,16 @@ def show_assessment_page(predictor):
                     for i, prob in enumerate(probs):
                         prob_data.append({
                             'Condition': target,
-                            'Severity': severity_labels[i],  # Changed from i+1 to i
+                            'Severity': severity_labels[i+1],
                             'Probability': prob * 100
                         })
             
-            if prob_data:
-                prob_df = pd.DataFrame(prob_data)
-                fig = px.bar(prob_df, x='Severity', y='Probability', color='Condition',
-                            title="Probability Distribution Across Severity Levels",
-                            barmode='group')
-                fig.update_layout(height=400)
-                st.plotly_chart(fig, use_container_width=True)
+            prob_df = pd.DataFrame(prob_data)
+            fig = px.bar(prob_df, x='Severity', y='Probability', color='Condition',
+                        title="Probability Distribution Across Severity Levels",
+                        barmode='group')
+            fig.update_layout(height=400)
+            st.plotly_chart(fig, use_container_width=True)
             
             # Personalized recommendations
             show_enhanced_recommendations(predictions, input_data)
@@ -784,7 +747,7 @@ def show_assessment_page(predictor):
             
         except Exception as e:
             st.error(f"Error making predictions: {e}")
-            st.info("This might be due to model training issues. Please try again or contact support.")
+            st.info("This might be due to model training issues. Please check the dataset format.")
 
 def show_enhanced_recommendations(predictions, input_data):
     """Show personalized recommendations based on predictions"""
@@ -799,7 +762,7 @@ def show_enhanced_recommendations(predictions, input_data):
     recommendations = []
     
     # Stress recommendations
-    if 'Stress' in predictions and predictions['Stress'] >= 2:  # Changed from 3 to 2 (moderate level)
+    if 'Stress' in predictions and predictions['Stress'] >= 3:
         recommendations.extend([
             "🧘‍♀️ **Stress Management**: Try progressive muscle relaxation or guided meditation for 10-15 minutes daily",
             "⏰ **Time Management**: Use the Pomodoro technique - work for 25 minutes, then take a 5-minute break",
@@ -807,7 +770,7 @@ def show_enhanced_recommendations(predictions, input_data):
         ])
     
     # Anxiety recommendations  
-    if 'Anxiety' in predictions and predictions['Anxiety'] >= 2:  # Changed from 3 to 2
+    if 'Anxiety' in predictions and predictions['Anxiety'] >= 3:
         recommendations.extend([
             "🔄 **Grounding Techniques**: Use the 5-4-3-2-1 method - name 5 things you see, 4 you can touch, etc.",
             "📝 **Worry Journal**: Write down your anxious thoughts to externalize them",
@@ -815,7 +778,7 @@ def show_enhanced_recommendations(predictions, input_data):
         ])
     
     # Depression recommendations
-    if 'Depression' in predictions and predictions['Depression'] >= 2:  # Changed from 3 to 2
+    if 'Depression' in predictions and predictions['Depression'] >= 3:
         recommendations.extend([
             "☀️ **Light Exposure**: Spend at least 15-30 minutes in natural sunlight daily",
             "👥 **Social Connection**: Reach out to one person today, even for a brief conversation",
@@ -844,7 +807,7 @@ def show_enhanced_recommendations(predictions, input_data):
         """, unsafe_allow_html=True)
     
     # Professional help suggestion
-    high_risk = any(predictions.get(condition, 0) >= 3 for condition in ['Stress', 'Anxiety', 'Depression'])  # Changed from 4 to 3
+    high_risk = any(predictions.get(condition, 0) >= 4 for condition in ['Stress', 'Anxiety', 'Depression'])
     if high_risk:
         st.markdown("""
         <div style="background: linear-gradient(135deg, #ff7b7b 0%, #ffb347 100%); 
@@ -965,12 +928,11 @@ def show_chatbot_page(chatbot):
             
             st.metric("Messages Sent", len(user_messages))
             
-            if categories:
-                category_counts = pd.Series(categories).value_counts()
-                if not category_counts.empty:
-                    st.markdown("**Response Categories:**")
-                    for cat, count in category_counts.items():
-                        st.write(f"• {cat.title()}: {count}")
+            category_counts = pd.Series(categories).value_counts()
+            if not category_counts.empty:
+                st.markdown("**Response Categories:**")
+                for cat, count in category_counts.items():
+                    st.write(f"• {cat.title()}: {count}")
 
 def show_analytics_dashboard(df, predictor):
     """Advanced analytics dashboard"""
@@ -997,7 +959,7 @@ def show_analytics_dashboard(df, predictor):
         st.metric("Average Depression Level", f"{avg_depression:.2f}")
     
     with col4:
-        high_risk_count = len(df[(df['Stress'] >= 3) | (df['Anxiety'] >= 3) | (df['Depression'] >= 3)])  # Changed from 4 to 3
+        high_risk_count = len(df[(df['Stress'] >= 4) | (df['Anxiety'] >= 4) | (df['Depression'] >= 4)])
         st.metric("High-Risk Individuals", f"{high_risk_count}")
     
     # Interactive visualizations
@@ -1072,13 +1034,12 @@ def show_analytics_dashboard(df, predictor):
         # Risk factor identification
         if all(col in df.columns for col in ['Social_Media_Hours', 'Sleep_Quality', 'Exercise_Frequency']):
             # Define risk thresholds
-            df_copy = df.copy()
-            df_copy['High_Social_Media'] = df_copy['Social_Media_Hours'] > 6
-            df_copy['Poor_Sleep'] = df_copy['Sleep_Quality'] < 5
-            df_copy['Low_Exercise'] = df_copy['Exercise_Frequency'] < 3
+            df['High_Social_Media'] = df['Social_Media_Hours'] > 6
+            df['Poor_Sleep'] = df['Sleep_Quality'] < 5
+            df['Low_Exercise'] = df['Exercise_Frequency'] < 3
             
             risk_factors = ['High_Social_Media', 'Poor_Sleep', 'Low_Exercise']
-            risk_prevalence = df_copy[risk_factors].sum() / len(df_copy) * 100
+            risk_prevalence = df[risk_factors].sum() / len(df) * 100
             
             fig = px.bar(x=risk_factors, y=risk_prevalence,
                         title="Prevalence of Risk Factors (%)",
@@ -1092,8 +1053,8 @@ def show_analytics_dashboard(df, predictor):
             
             impact_data = []
             for condition in ['Stress', 'Anxiety', 'Depression']:
-                with_risk = df_copy[df_copy[selected_risk] == True][condition].mean()
-                without_risk = df_copy[df_copy[selected_risk] == False][condition].mean()
+                with_risk = df[df[selected_risk] == True][condition].mean()
+                without_risk = df[df[selected_risk] == False][condition].mean()
                 impact_data.extend([
                     {'Condition': condition, 'Group': 'With Risk Factor', 'Score': with_risk},
                     {'Condition': condition, 'Group': 'Without Risk Factor', 'Score': without_risk}
@@ -1229,5 +1190,6 @@ def show_emergency_resources():
 
 if __name__ == "__main__":
     main()
+
 
 
