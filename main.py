@@ -238,7 +238,7 @@ class EnhancedMentalHealthPredictor:
             
             # Try multiple algorithms
             models_to_try = {
-                'XGBoost': xgb.XGBClassifier(random_state=42, eval_metric='mlogloss', num_class=5),
+                
                 'RandomForest': RandomForestClassifier(random_state=42),
                 'GradientBoosting': GradientBoostingClassifier(random_state=42)
             }
@@ -1190,6 +1190,7 @@ def show_emergency_resources():
 
 if __name__ == "__main__":
     main()
+
 
 
 
