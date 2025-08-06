@@ -2,9 +2,11 @@ streamlit
 pandas
 numpy>=1.26.0
 scikit-learn
+xgboost>=1.7.0
 plotly
 matplotlib
 seaborn
 scipy
 joblib
+
 
