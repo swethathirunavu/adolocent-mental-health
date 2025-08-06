@@ -153,10 +153,10 @@ class EnhancedMentalHealthPredictor:
             np.random.normal(0, 1, n_samples)
         )
         
-        # Convert to categorical scales (1-5: Normal, Mild, Moderate, Severe, Extremely Severe)
+        # Convert to categorical scales (0-4: Normal, Mild, Moderate, Severe, Extremely Severe)
         def to_severity_scale(values):
             normalized = (values - values.min()) / (values.max() - values.min())
-            return np.ceil(normalized * 5).astype(int).clip(1, 5)
+            return np.floor(normalized * 5).astype(int).clip(0, 4)  # Changed to 0-4 scale
         
         stress_levels = to_severity_scale(base_stress)
         anxiety_levels = to_severity_scale(base_anxiety)
@@ -368,9 +368,9 @@ class EnhancedMentalHealthPredictor:
                 except Exception as e:
                     st.error(f"Error predicting {target}: {str(e)}")
                     # Fallback prediction
-                    predictions[target] = 3  # Moderate
+                    predictions[target] = 2  # Moderate (changed from 3)
                     probabilities[target] = {
-                        'prediction': 3,
+                        'prediction': 2,
                         'confidence': 0.5,
                         'probabilities': [0.2, 0.2, 0.2, 0.2, 0.2]
                     }
@@ -734,8 +734,8 @@ def show_assessment_page(predictor):
             
             # Main metrics
             col1, col2, col3 = st.columns(3)
-            severity_labels = {1: "Normal", 2: "Mild", 3: "Moderate", 4: "Severe", 5: "Extremely Severe"}
-            colors = {1: "#28a745", 2: "#ffc107", 3: "#fd7e14", 4: "#dc3545", 5: "#6f42c1"}
+            severity_labels = {0: "Normal", 1: "Mild", 2: "Moderate", 3: "Severe", 4: "Extremely Severe"}
+            colors = {0: "#28a745", 1: "#ffc107", 2: "#fd7e14", 3: "#dc3545", 4: "#6f42c1"}
             
             for i, (col, target) in enumerate(zip([col1, col2, col3], ['Stress', 'Anxiety', 'Depression'])):
                 with col:
@@ -764,7 +764,7 @@ def show_assessment_page(predictor):
                     for i, prob in enumerate(probs):
                         prob_data.append({
                             'Condition': target,
-                            'Severity': severity_labels[i+1],
+                            'Severity': severity_labels[i],  # Changed from i+1 to i
                             'Probability': prob * 100
                         })
             
@@ -799,7 +799,7 @@ def show_enhanced_recommendations(predictions, input_data):
     recommendations = []
     
     # Stress recommendations
-    if 'Stress' in predictions and predictions['Stress'] >= 3:
+    if 'Stress' in predictions and predictions['Stress'] >= 2:  # Changed from 3 to 2 (moderate level)
         recommendations.extend([
             "🧘‍♀️ **Stress Management**: Try progressive muscle relaxation or guided meditation for 10-15 minutes daily",
             "⏰ **Time Management**: Use the Pomodoro technique - work for 25 minutes, then take a 5-minute break",
@@ -807,7 +807,7 @@ def show_enhanced_recommendations(predictions, input_data):
         ])
     
     # Anxiety recommendations  
-    if 'Anxiety' in predictions and predictions['Anxiety'] >= 3:
+    if 'Anxiety' in predictions and predictions['Anxiety'] >= 2:  # Changed from 3 to 2
         recommendations.extend([
             "🔄 **Grounding Techniques**: Use the 5-4-3-2-1 method - name 5 things you see, 4 you can touch, etc.",
             "📝 **Worry Journal**: Write down your anxious thoughts to externalize them",
@@ -815,7 +815,7 @@ def show_enhanced_recommendations(predictions, input_data):
         ])
     
     # Depression recommendations
-    if 'Depression' in predictions and predictions['Depression'] >= 3:
+    if 'Depression' in predictions and predictions['Depression'] >= 2:  # Changed from 3 to 2
         recommendations.extend([
             "☀️ **Light Exposure**: Spend at least 15-30 minutes in natural sunlight daily",
             "👥 **Social Connection**: Reach out to one person today, even for a brief conversation",
@@ -844,7 +844,7 @@ def show_enhanced_recommendations(predictions, input_data):
         """, unsafe_allow_html=True)
     
     # Professional help suggestion
-    high_risk = any(predictions.get(condition, 0) >= 4 for condition in ['Stress', 'Anxiety', 'Depression'])
+    high_risk = any(predictions.get(condition, 0) >= 3 for condition in ['Stress', 'Anxiety', 'Depression'])  # Changed from 4 to 3
     if high_risk:
         st.markdown("""
         <div style="background: linear-gradient(135deg, #ff7b7b 0%, #ffb347 100%); 
@@ -997,7 +997,7 @@ def show_analytics_dashboard(df, predictor):
         st.metric("Average Depression Level", f"{avg_depression:.2f}")
     
     with col4:
-        high_risk_count = len(df[(df['Stress'] >= 4) | (df['Anxiety'] >= 4) | (df['Depression'] >= 4)])
+        high_risk_count = len(df[(df['Stress'] >= 3) | (df['Anxiety'] >= 3) | (df['Depression'] >= 3)])  # Changed from 4 to 3
         st.metric("High-Risk Individuals", f"{high_risk_count}")
     
     # Interactive visualizations
@@ -1229,4 +1229,5 @@ def show_emergency_resources():
 
 if __name__ == "__main__":
     main()
+
 
